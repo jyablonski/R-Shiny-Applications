@@ -6,6 +6,7 @@ library(tidyverse)
 library(spotifyr)
 library(extrafont)
 library(plotly)
+library(shinycssloaders)
 
 source('setToken.R')
 access_token <- get_spotify_access_token()
@@ -14,7 +15,7 @@ mdyDate <-  format(dateVariable, format = "%B %d, %Y")
 
 # custom theme
 theme_jacob <- function () { 
-  theme_minimal(base_size=9, base_family="Gill Sans MT") %+replace% 
+  theme_minimal(base_size=10, base_family="Gill Sans MT") %+replace% 
     theme(
       panel.grid.minor = element_blank(),
       plot.background = element_rect(fill = 'floralwhite', color = 'floralwhite')
@@ -43,12 +44,20 @@ get_artist_album_count <- function(dataset){
     count(name = 'Albums')}
 
 get_artist_statistics <- function(dataset){
+  artist_Songs <- dataset %>%
+    distinct(track_name) %>%
+    count(name = 'Songs')
+  
+  artist_Albums <- dataset %>%
+    distinct(album_name) %>%
+    count(name = 'Albums')
+  
   data3 <- dataset %>%
     select(valence, energy) %>%
     mutate(avg_valence = mean(valence * 100),
            avg_energy = mean(energy * 100),
-           avg_valence = round(avg_valence, 2),
-           avg_energy = round(avg_energy, 2)) %>%
+           avg_valence = round(avg_valence, 1),
+           avg_energy = round(avg_energy, 1)) %>%
     select(-valence, -energy) %>%
     rename(Positivity = avg_valence, Energy = avg_energy) %>%
     head(1) %>%
@@ -64,13 +73,7 @@ get_album_timeline <- function(dataset){
 # plot function
 # plot function
 myPlot <- function(df) {
-  artist_Albums <- df %>%
-    distinct(album_name) %>%
-    count()
-  artist_Songs <- df %>%
-    distinct(track_name) %>%
-    count()
-  
+
   p <- df %>%
     ggplot(aes(valence, energy, color = album_name, text = paste(track_name, '<br>', album_name, '<br>',
                                                                  'Positivity ', round(valence, 2), '<br>',
@@ -88,42 +91,59 @@ myPlot <- function(df) {
          y = "Energy",
          color = 'Album',
          title = paste(df$artist_name, ' Song Distribution', sep = ""),
-         subtitle = paste(artist_Songs$n, ' Songs and ', artist_Albums$n, ' Total Albums', sep = ""),
          caption = paste('Data collected via spotifyr Package on ', mdyDate, sep = "")) +
     theme_jacob() +
     theme(legend.position = 'top')
   ggplotly(p, tooltip = c('text')) %>%
     layout(title = list(text = paste0(paste(df$artist_name, ' Song Distribution', sep = ""))))
-                                      '<br>',
-                                      '<sup>',
-                                      subtitle = paste(artist_Songs$n, ' Songs and ', artist_Albums$n, ' Total Albums', sep = ""),
-                                      '</sup>')))
+  
 }
 
-  
-# Define UI ----
-ui <- fluidPage(
-  titlePanel("Spotify App"),
-  
-  sidebarLayout(
-    sidebarPanel(textInput("user_artist", h3("Select an Artist"), 
-                           value = "Enter text...")),
-    actionButton("simulate", "Search")
-    ),
-  fluidRow(
-    column(3, valueBoxOutput('songsBox')),
-    column(3, valueBoxOutput('albumsBox')),
-    column(3, valueBoxOutput('positivityBox')),
-    column(3, valueBoxOutput('energyBox'))
-  ),
-  fluidRow(
-    column(12, plotlyOutput("spotify_plot"))
-  )
+# R SHINY DASHBOARD ----
+
+# UI
+ui <- dashboardPage(title = 'Spotify App',
+                    header = dashboardHeader(title = "Spotify App"),
+                    sidebar = dashboardSidebar(
+                      sidebarMenu(
+                        menuItem("Dashboard", tabName = "dashboard", icon = icon("dashboard")),
+                        menuItem("Github", icon = icon("send",lib='glyphicon'), 
+                                 href = "https://github.com/jyablonski")
+                      )
+                    ),
+                    body = dashboardBody(
+                      fluidRow(
+                      box(
+                        textInput("user_artist", h3("Select an Artist"), 
+                                  value = "Enter text..."),
+                        actionButton("simulate", "Search", icon = icon('play fill')), width = 4, solidHeader = TRUE)
+                    ),
+                    fluidRow(
+                      valueBoxOutput("songsBox", width = 3),
+                      valueBoxOutput("albumsBox", width = 3),
+                      valueBoxOutput("positivityBox", width = 3),
+                      valueBoxOutput("energyBox", width = 3)
+                    ),
+                    fluidRow( 
+                      box(
+                        title = "Song Distribution",
+                        status = "primary",
+                        solidHeader = TRUE ,
+                        collapsible = TRUE ,
+                        width = 12,
+                        plotlyOutput("spotify_plot", height = "400px") %>%
+                          withSpinner(color="#0dc5c1")
+                      )
+                    )
+                    
+                    ),
+                    skin = 'blue'
 )
 
-
-# Define server logic ----
+# Server Logic
 server <- function(input, output) {
+  output$spotify_plot <- DT::renderDT(NULL)
+  
   observeEvent(input$simulate, {
     my_artist <- input$user_artist
     
@@ -132,7 +152,7 @@ server <- function(input, output) {
     artist_Albums <- get_artist_album_count(dataset = artist_Data)
     artist_Statistics <- get_artist_statistics(dataset = artist_Data)
     artist_Album_Timeline <- get_album_timeline(dataset = artist_Data)
-
+    
     output$spotify_plot <- renderPlotly({
       my_artist <- input$user_artist
       myPlot(artist_Data)
@@ -140,36 +160,28 @@ server <- function(input, output) {
     
     output$songsBox <- renderValueBox({
       valueBox(
-        artist_Statistics$Songs, "Unique Songs", icon = icon("credit-card"), color = "red"
+        value = artist_Statistics$Songs, "Songs", icon = icon("music note list"), color = "red"
       )
     })
     output$albumsBox <- renderValueBox({
       valueBox(
-        artist_Statistics$Albums, "Studio Albums", icon = icon("credit-card"), color = "red"
+        value = artist_Statistics$Albums, "Studio Albums", icon = icon("folder plus"), color = "red"
       )
     })
     output$positivityBox <- renderValueBox({
       valueBox(
-        artist_Statistics$Positivity, "Positivity", icon = icon("credit-card"), color = "blue"
+        value = paste0(artist_Statistics$Positivity, '%'), "Average Positivity Score", icon = icon("plus square"), color = "blue"
       )
     })
     output$energyBox <- renderValueBox({
       valueBox(
-        artist_Statistics$Energy, "Energy", icon = icon("credit-card"), color = "orange"
+        value = paste0(artist_Statistics$Energy, '%'), "Average Energy Score", icon = icon("battery full"), color = "orange"
       )
     })
-
-})
+    
+  })
   
-
 }
 
-# Run the app ----
-shinyApp(ui = ui, server = server)
-
-
-# functioning as of 5:15 pm 6-8-20
-# to do list : create averages for energy + positivity.
-
-
-# button to remove commentary  / bonus tracks / live music (basically any duplicate songs)
+# Run the App
+shinyApp(ui, server)
