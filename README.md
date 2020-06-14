@@ -1,4 +1,4 @@
-# spotify-app
+## Spotify App Using Spotifyr and Shiny in R
 
 
-[Shiny App](https://jyablonski.shinyapps.io/spotify/)
+[Shiny App Link](https://jyablonski.shinyapps.io/spotify/)
