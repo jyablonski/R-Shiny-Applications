@@ -7,6 +7,8 @@ library(spotifyr)
 library(extrafont)
 library(plotly)
 library(shinycssloaders)
+library(dashboardthemes)
+
 
 source('setToken.R')
 access_token <- get_spotify_access_token()
@@ -18,6 +20,7 @@ theme_jacob <- function () {
   theme_minimal(base_size=10, base_family="Gill Sans MT") %+replace% 
     theme(
       panel.grid.minor = element_blank(),
+      panel.background = element_rect(fill = "floralwhite"),
       plot.background = element_rect(fill = 'floralwhite', color = 'floralwhite')
     )
 }
@@ -73,7 +76,7 @@ get_album_timeline <- function(dataset){
 # plot function
 # plot function
 myPlot <- function(df) {
-
+  
   p <- df %>%
     ggplot(aes(valence, energy, color = album_name, text = paste(track_name, '<br>', album_name, '<br>',
                                                                  'Positivity ', round(valence, 2), '<br>',
@@ -83,19 +86,23 @@ myPlot <- function(df) {
     geom_vline(xintercept = 0.5) +
     scale_x_continuous(limits = c(0, 1), breaks = seq(0, 1, .1)) +
     scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, .1)) +
-    annotate('text', x = 0.95, y = 1, label = 'Happy / Joyful') +
-    annotate('text', x = 0.95, y = 0, label = 'Mellow / Peaceful') +
+    annotate('text', x = 0.99, y = 1, label = 'Happy / Upbeat') +
+    annotate('text', x = 0.99, y = 0, label = 'Mellow / Peaceful') +
     annotate('text', x = 0.01, y = 0, label = 'Sad / Slow') +
-    annotate('text', x = 0.09, y = 1, label = 'Aggressive / Fast Paced') +
+    annotate('text', x = 0.05, y = 1, label = 'Aggressive / Fast Paced') +
     labs(x = "Positivity",
          y = "Energy",
          color = 'Album',
          title = paste(df$artist_name, ' Song Distribution', sep = ""),
-         caption = paste('Data collected via spotifyr Package on ', mdyDate, sep = "")) +
+         subtitle = paste('Data collected via spotifyr Package on ', mdyDate, sep = "")) +
     theme_jacob() +
     theme(legend.position = 'top')
   ggplotly(p, tooltip = c('text')) %>%
-    layout(title = list(text = paste0(paste(df$artist_name, ' Song Distribution', sep = ""))))
+    layout(title = list(text = paste0(paste(df$artist_name, ' Song Distribution', sep = ""),
+                                      '<br>',
+                                      '<sup>',
+                                      paste('Data collected via spotifyr Package on ', mdyDate, sep = ""),
+                                      '</sup>')))
   
 }
 
@@ -107,45 +114,127 @@ ui <- dashboardPage(title = 'Spotify App',
                     sidebar = dashboardSidebar(
                       sidebarMenu(
                         menuItem("Dashboard", tabName = "dashboard", icon = icon("dashboard")),
+                        menuItem("About", tabName = 'about', icon = icon('question octagon')),
                         menuItem("Github", icon = icon("send",lib='glyphicon'), 
-                                 href = "https://github.com/jyablonski")
+                                 href = "https://github.com/jyablonski/spotify-app")
                       )
                     ),
                     body = dashboardBody(
+                      shinyDashboardThemes(
+                        theme = 'grey_light'),
+                      tabItems(
+                        tabItem(tabName = 'dashboard',
+
                       fluidRow(
-                      box(
-                        textInput("user_artist", h3("Select an Artist"), 
-                                  value = "Enter text..."),
-                        actionButton("simulate", "Search", icon = icon('play fill')), width = 4, solidHeader = TRUE)
-                    ),
-                    fluidRow(
-                      valueBoxOutput("songsBox", width = 3),
-                      valueBoxOutput("albumsBox", width = 3),
-                      valueBoxOutput("positivityBox", width = 3),
-                      valueBoxOutput("energyBox", width = 3)
-                    ),
-                    fluidRow( 
-                      box(
-                        title = "Song Distribution",
-                        status = "primary",
-                        solidHeader = TRUE ,
-                        collapsible = TRUE ,
-                        width = 12,
-                        plotlyOutput("spotify_plot", height = "400px") %>%
-                          withSpinner(color="#0dc5c1")
+                        box(
+                          textInput("user_artist_search", h3("Type an Artist")), width = 4, height = 220, solidheader = TRUE),
+                        box(
+                          selectInput('select_artist', h3("Select your Artist from these matches on Spotify"),
+                                      choices = c()),
+                          actionButton("generate_plot", "Generate Plot",
+                                       style = "background-color:#F0F0F0;
+                      color:#000000;
+                      border-color:#000000;
+                      border-style:solid;
+                      border-width:2px;
+                      border-radius:5%;
+                      font-size:15px;", icon = icon('play')), width = 4, height = 220, solidHeader = TRUE),
+                        box(
+                          htmlOutput('artist_album_img'), width = 2, height = 220, solidHeader = TRUE)
+                      ),
+                      fluidRow(
+                        valueBoxOutput("songsBox", width = 3),
+                        valueBoxOutput("albumsBox", width = 3),
+                        valueBoxOutput("positivityBox", width = 3),
+                        valueBoxOutput("energyBox", width = 3)
+                      ),
+                      fluidRow( 
+                        box(
+                          title = "Quadrant Analysis",
+                          status = "success",
+                          solidHeader = TRUE,
+                          collapsible = FALSE,
+                          width = 12,
+                          plotlyOutput("spotify_plot", height = "600px") %>%
+                            withSpinner(color="#0dc5c1")
+                        )
+                      )
+                        ),
+                      tabItem(tabName = 'about',
+                              fluidRow(
+                                fluidRow(
+                                  column(
+                                    box(
+                                      title = div("About this Project", style = "padding-left: 20px", class = "h2"),
+                                      column(
+                                        "This dashboard allows users to type in and select a Spotify Artist and look at their
+                                        song distribution. The app uses the spotifyr package to utilize Spotify's API to send &
+                                        receive data based on the user's input.",
+                                        tags$br(),
+                                        tags$br(),
+                                        "Spotify provides characteristics such as energy, tempo, positivity, and loudness for 
+                                        every song on their platform.  I used these variables to create a quadrant analysis to 
+                                        get a better idea of the Artist's musical style.",
+                                        tags$br(),
+                                        tags$br(),
+                                        "The App was last updated on June 14, 2020.",
+
+                                        h3("Developer"),
+                                        "Jacob Yablonski | ",
+                                        tags$a(href = "https://www.linkedin.com/in/jacobyablonski/", "LinkedIn"), "|",
+                                        tags$a(href = "https://github.com/jyablonski", "Github"),
+                                        width = 12,
+                                        style = "padding-left: 20px; padding-right: 20px; padding-bottom: 40px; margin-top: -15px;"
+                                      ),
+                                      width = 6
+                                    ),
+                                    width = 12,
+                                    style = "padding: 15px"
+                                  )
+                                )
+                              )
+                              )
                       )
                     )
-                    
-                    ),
-                    skin = 'blue'
 )
 
 # Server Logic
-server <- function(input, output) {
+server <- function(input, output, session) {
   output$spotify_plot <- DT::renderDT(NULL)
   
-  observeEvent(input$simulate, {
-    my_artist <- input$user_artist
+  artist_info <- reactive({
+    req(input$user_artist_search != '') # basically tells the server to wait until there's something in the input
+    search_spotify(q = input$user_artist_search, type = c('artist')) %>% 
+      filter(!duplicated(name)) %>%
+      arrange(desc(popularity))
+  })
+  
+  observeEvent(input$user_artist_search, {
+    choices <- artist_info()$name
+    names(choices) <- choices
+    
+    updateSelectInput(session, 'select_artist',
+                      choices = choices,
+                      selected = artist_info()$name[1])
+    
+  })
+  
+  selected_artist <- reactive({
+    req(nrow(artist_info()) > 0) # tells the server to wait until we actually have data in artist_info()
+    artist_info() %>% 
+      filter(name == input$select_artist)
+  })
+  
+  observeEvent(input$select_artist, {
+    artist_img <- selected_artist()$images[[1]]$url[2]
+    
+    output$artist_album_img <- renderText({
+      HTML(str_glue('<img src={artist_img} height="200">'))
+    })
+  })
+  
+  observeEvent(input$generate_plot, {
+    my_artist <- input$select_artist
     
     artist_Data <- get_artist_data(artist = my_artist)
     artist_Songs <- get_artist_song_count(dataset = artist_Data)
@@ -154,7 +243,7 @@ server <- function(input, output) {
     artist_Album_Timeline <- get_album_timeline(dataset = artist_Data)
     
     output$spotify_plot <- renderPlotly({
-      my_artist <- input$user_artist
+      
       myPlot(artist_Data)
     })
     
@@ -165,7 +254,7 @@ server <- function(input, output) {
     })
     output$albumsBox <- renderValueBox({
       valueBox(
-        value = artist_Statistics$Albums, "Studio Albums", icon = icon("folder plus"), color = "red"
+        value = artist_Statistics$Albums, "Studio Albums", icon = icon("folder plus"), color = "green"
       )
     })
     output$positivityBox <- renderValueBox({
