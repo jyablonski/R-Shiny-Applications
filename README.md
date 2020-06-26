@@ -1,5 +1,4 @@
-## Spotify App Using Spotifyr and Shiny in R
-
+## Jacob Yablonski | Personal R Shiny Applications
 
 [Shiny App Link](https://jyablonski.shinyapps.io/spotify/)
 
