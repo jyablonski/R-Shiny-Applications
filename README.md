@@ -2,4 +2,6 @@
 
 [Spotify Artist App](https://jyablonski.shinyapps.io/spotify/)
 
-NBA Dashboard (coming soon)
+[COVID-19 Dashboard](https://jyablonski.shinyapps.io/covid-19_rshiny/)
+
+[NBA Dashboard]()
