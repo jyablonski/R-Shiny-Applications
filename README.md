@@ -5,3 +5,4 @@
 [COVID-19 Dashboard](https://jyablonski.shinyapps.io/covid-19_rshiny/)
 
 [NBA Dashboard](https://jyablonski.shinyapps.io/nba_r_shiny/)
+[Amazon Reviews Dashboard](https://jyablonski.shinyapps.io/amazon-dashboard/)
