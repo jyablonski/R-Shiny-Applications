@@ -18,13 +18,19 @@ library(fs)
 library(googlesheets4)
 library(googledrive)
 library(scales)
-
+library(cowplot)
+library(prismatic)
+library(hexbin)
+library(jsonlite)
+library(httr)
 
 Sys.setenv (TZ="America/Los_Angeles")
 # designate project-specific cache
-options(gargle_oauth_cache = ".secrets")
-gs4_auth(path = '.secrets', email = 'jyablonski9@gmail.com')
-drive_auth(cache = ".secrets", email = "jyablonski9@gmail.com")
+# options(gargle_oauth_cache = ".secrets")
+# gs4_auth(path = '.secrets', email = 'jyablonski9@gmail.com')
+# drive_auth(cache = ".secrets", email = "jyablonski9@gmail.com")
+gs4_auth_configure(api_key = "AIzaSyAzox2eJqkur-VSuSxwIRbKCs_-m-ky4d8")
+gs4_deauth()
 
 today <- Sys.Date()
 todayDate <- Sys.Date()
@@ -44,7 +50,7 @@ theme_jacob <- function () {
 }
 
 teamStatsDownload <- function() {
-  if (isSeasonActive == TRUE & as.double(Sys.time() - file_info('data/dataBREFTeamJoined.csv')$change_time, units = 'hours') > 8.0){
+  if (isSeasonActive == FALSE & as.double(Sys.time() - file_info('data/dataBREFTeamJoined.csv')$change_time, units = 'hours') > 8.0){
     dataBREFTeamJoined <- bref_teams_stats(seasons = 2020) %>%
       unnest(dataTable)
     rm(dataBREFMiscTeams, dataBREFPerGameTeams, dataBREFPerPossTeams, dataBREFPlayerAdvanced, dataBREFShootingTeams,
@@ -102,6 +108,8 @@ getSchedule <- function(){
   dates <- webpage %>% 
     html_nodes("table#schedule > tbody > tr > th") %>% 
     html_text()
+  dates <- as.data.frame(dates) %>%
+    filter(dates != 'Playoffs')
   # dates <- dates[dates != "Playoffs"]
   game_id <- webpage %>% 
     html_nodes("table#schedule > tbody > tr > th") %>%
@@ -115,8 +123,6 @@ getSchedule <- function(){
   names(month_df1) <- col_names
   return(month_df1)
 }
-
-
 
 # Loading in Data 
 injuryData <- get_injuries_data()
@@ -184,6 +190,17 @@ GP <- gameLogs %>%
   group_by(Player) %>%
   summarise(GP = n())
 
+player_regular_gp <- gameLogs %>%
+  filter(Date <= '2020-08-15') %>%
+  group_by(Player) %>%
+  summarise(GP = n())
+
+player_playoffs_gp <- gameLogs %>%
+  filter(Date >= '2020-08-15') %>%
+  group_by(Player) %>%
+  summarise(GP_p = n())
+
+
 gameLogs_Two <- gameLogs %>%
   mutate(game_ts_percent = PTS / (2 * (FGA + (0.44 * FTA)))) %>%
   left_join(ts_percent) %>%
@@ -192,14 +209,18 @@ gameLogs_Two <- gameLogs %>%
   mutate(MVPCalc = (mean(PTS) + (2 * mean(PlusMinus) + (2 * mean(STL + BLK) + (0.5 * mean(TRB) - mean(TOV) + mean(AST))))),
          Date = as.Date(Date)) %>%
   ungroup() %>%
-  left_join(GP) %>%
+  left_join(player_regular_gp) %>%
+  left_join(player_playoffs_gp) %>%
   mutate(abc1 = (MVPCalc / Salary),
          abc2 = (Salary / MVPCalc),
          abc3 = (MVPCalc * GP),
+         GP_p = replace_na(GP_p, 0),
          GV = case_when(abc3 >= 1800 & Salary >= 24000000 ~ 'Superstars',
-                        abc3 >= 1800 & Salary <= 8000000 ~ 'Great Value',
-                        abc3 < 900 & Salary > 15000000 ~ 'Stinkers',
+                        abc3 >= 1600 & Salary <= 8000000 ~ 'Great Value',
+                        abc3 < 900 & Salary > 15000000 ~ 'Bad Value',
                         TRUE ~ 'Other'))
+
+rm(gameLogs)
 
 gameLogs_Yesterday <- gameLogs_Two %>%
   filter(Date == max(Date))
@@ -246,9 +267,7 @@ recent_Bans2 <- team_Wins_Yesterday %>%
          Outcome = replace(Outcome, Outcome == 'W', 'Home Wins')) %>%
   select(-Location) %>%
   rename(Location = Outcome, 'Win Percentage' = WinP) %>%
-  pivot_wider(names_from = Location, values_from = c(Count, 'Win Percentage')) %>%
-  rename('Road Wins' = 'Count_Road Wins', 'Home Wins' = 'Count_Home Wins', 'Win Percentage Road' = 'Win Percentage_Road Wins',
-         'Win Percentage Home' = 'Win Percentage_Home Wins')
+  pivot_wider(names_from = Location, values_from = c(Count, 'Win Percentage'))
 
 recent_Bans <- team_Wins_Yesterday %>%
   summarise(NumberofGames = n(),
@@ -330,6 +349,7 @@ win_streak <- gameLogs_Two %>%
   rename(`Win Streak` = winbb)
 
 team_wins <- gameLogs_Two %>%
+  filter(Type == 'Regular Season') %>%
   group_by(Team, Outcome) %>%
   distinct(GameID) %>%
   summarise(n = n()) %>%
@@ -368,8 +388,10 @@ west_standings <- team_wins %>%
   mutate(Seed = min_rank(desc(WinPercentage))) %>%
   select(-WinPercentage) %>%
   select(Seed, FullName, Wins, Losses, `Win Streak`, 'Active Injuries') %>%
-  arrange(Seed) %>%
-  rename(Team = FullName)
+  rename(Team = FullName) %>%
+  mutate(Seed = replace(Seed, Team == 'Houston Rockets', 5),
+         Seed = replace(Seed, Team == 'Utah Jazz', 6)) %>%
+  arrange(Seed)
 
 
 team_points_histogram <- gameLogs_Two %>%
@@ -377,6 +399,7 @@ team_points_histogram <- gameLogs_Two %>%
   summarise(Total_PTS = sum(PTS))
 
 top_20pt_scorers <- gameLogs_Two %>%
+  filter(Type == 'Regular Season') %>%
   group_by(Player) %>%
   filter(mean(PTS) >= 20) %>%
   transmute(avg_PTS = mean(PTS), season_ts_percent, MVPCalc, Team) %>%
@@ -386,6 +409,19 @@ top_20pt_scorers <- gameLogs_Two %>%
   mutate(Rank = row_number(),
          Top5 = case_when(Rank <= 5 ~ 'Top 5 MVP Candidates',
                           TRUE ~ 'Other'))
+
+top_20pt_scorers_p <- gameLogs_Two %>%
+  filter(Type == 'Playoffs') %>%
+  group_by(Player) %>%
+  filter(mean(PTS) >= 20) %>%
+  transmute(avg_PTS = mean(PTS), season_ts_percent, MVPCalc, Team) %>%
+  distinct() %>%
+  ungroup() %>%
+  arrange(desc(MVPCalc)) %>%
+  mutate(Rank = row_number(),
+         Top5 = case_when(Rank <= 5 ~ 'Top 5 MVP Candidates',
+                          TRUE ~ 'Other'))
+
 
 team_ratings_logo <- team_ratings %>%
   mutate(logo = case_when(Team == 'ATL' ~ 'logos/atl.png',
@@ -438,22 +474,49 @@ team_ratings_logo <- team_ratings %>%
 #   theme_jacob() +
 #   theme(plot.title = element_text(hjust = 0.5), legend.position = 'top')
 
-top20_plot <- top_20pt_scorers %>%
-  ggplot(aes(avg_PTS, season_ts_percent, color = Top5, text = paste(Player, '<br>',
-                                                                    Team, '<br>',
-                                                             'PPG: ', round(avg_PTS, 1), '<br>',
-                                                             'TS%: ', round(season_ts_percent, 3)))) +
-  geom_point(size = 6, alpha = 0.7, pch = 21, color = 'black', aes(fill = Top5)) +
-  scale_y_continuous(labels = scales::percent, limits=c(.52, .68), breaks=seq(.52, .68, by = .04)) + 
-  scale_color_manual(values = c('light blue', 'orange')) +
-  scale_fill_manual(values = c('light blue', 'orange')) +
-  labs(color = 'Top 5 MVP Candidates', fill = 'Top 5 MVP Candidates',
-       title = 'Player Efficiency Tracker \n PPG vs TS% for all 20+ PPG Scorers',
-       x = 'Average Points per Game',
-       y = 'True Shooting Percentage') +
-  theme_jacob() +
-  theme(plot.title = element_text(hjust = 0.5), legend.position = 'top')
+top20_plot <- function(df){
+  p <- df %>%
+    ggplot(aes(avg_PTS, season_ts_percent, color = Top5, text = paste(Player, '<br>',
+                                                                      Team, '<br>',
+                                                                      'PPG: ', round(avg_PTS, 1), '<br>',
+                                                                      'TS%: ', round(season_ts_percent, 3)))) +
+    geom_point(size = 6, alpha = 0.7, pch = 21, color = 'black', aes(fill = Top5)) +
+    scale_y_continuous(labels = scales::percent, limits=c(.52, .68), breaks=seq(.52, .68, by = .04)) + 
+    scale_color_manual(values = c('light blue', 'orange')) +
+    scale_fill_manual(values = c('light blue', 'orange')) +
+    labs(color = 'Top 5 MVP Candidates', fill = 'Top 5 MVP Candidates',
+         title = 'Player Efficiency Tracker \n PPG vs TS% for all 20+ PPG Scorers',
+         x = 'Average Points per Game',
+         y = 'True Shooting Percentage') +
+    theme_jacob() +
+    theme(plot.title = element_text(hjust = 0.5), legend.position = 'top')
+  
+  ggplotly(p, tooltip = c('text')) %>%
+    layout(legend = list(orientation = "h", x = 0.35))
+  
+}
 
+
+top20_plot_p <- function(df){
+  p <- df %>%
+    ggplot(aes(avg_PTS, season_ts_percent, color = Top5, text = paste(Player, '<br>',
+                                                                      Team, '<br>',
+                                                                      'PPG: ', round(avg_PTS, 1), '<br>',
+                                                                      'TS%: ', round(season_ts_percent, 3)))) +
+    geom_point(size = 6, alpha = 0.7, pch = 21, color = 'black', aes(fill = Top5)) +
+    scale_y_continuous(labels = scales::percent, limits=c(.52, .68), breaks=seq(.52, .68, by = .04)) + 
+    scale_color_manual(values = c('light blue', 'orange')) +
+    scale_fill_manual(values = c('light blue', 'orange')) +
+    labs(color = 'Top 5 MVP Candidates', fill = 'Top 5 MVP Candidates',
+         title = 'Player Efficiency Tracker \n PPG vs TS% for all 20+ PPG Scorers',
+         x = 'Average Points per Game',
+         y = 'True Shooting Percentage') +
+    theme_jacob() +
+    theme(plot.title = element_text(hjust = 0.5), legend.position = 'top')
+  
+  ggplotly(p, tooltip = c('text')) %>%
+    layout(legend = list(orientation = "h", x = 0.35))
+}
 
 # add green + red annotations for good & bad
 #   geom_text_repel(aes(label = Team), nudge_y = -0.6) +
@@ -494,29 +557,32 @@ team_choices <- unique(team_wins$Team)
 
   
 team_mov <- gameLogs_Two %>%
-  group_by(Team, Date, Outcome, Opponent) %>%
+  group_by(Team, Date, Outcome, Opponent, Type, GameID) %>%
   summarise(Margin_of_Victory = sum(PlusMinus) / 5,
             team_pts = sum(PTS)) %>%
   ungroup() %>%
-  mutate(Opp_PTS = team_pts - Margin_of_Victory) %>%
+  mutate(Opp_PTS = team_pts - Margin_of_Victory,
+         Date1 = as.factor(Date)) %>%
   left_join(full_team_names)
 
 
 value_plot <- function(df){
-  
+  df <- df %>%
+    filter(Date <= '2020-08-14')
   p <- df %>%
-    filter(GP > 20) %>%
-    ggplot(aes(Salary, MVPCalc, fill = GV)) +
+    filter(GP > 15) %>%
+    ggplot(aes(as.numeric(Salary), MVPCalc, fill = GV)) +
     geom_point(aes(text = paste0(Player, '<br>',
                                  'Salary: ', formatC(Salary, format = 'f', big.mark = ",", digits = 0), '<br>',
                                  'MVP Metric: ', round(MVPCalc, 2), '<br>',
                                  'GP: ', GP)), size = 2.5, shape = 21, alpha = 0.7) +
     scale_x_continuous(labels = label_dollar()) +
     theme_jacob() +
-    labs(y = 'Custom Player Value Metric',
-         title = 'Who are the best & worst contract values in the 2019-2020 NBA Season ?',
+    labs(y = 'Player Value Metric',
+         x = 'Salary',
+         title = 'What were the least & most valuable contracts in the 2019-2020 NBA Season ?',
          fill = 'Color Legend') +
-    scale_fill_manual(values=c("green", "grey70", "red", 'purple'))
+    scale_fill_manual(values=c("red", "green", "grey70", 'purple'))
   
   ggplotly(p, tooltip = c('text'))
 }
@@ -524,18 +590,21 @@ value_plot <- function(df){
 
 mov_plot <- function(df){
   p <- df %>%
-    ggplot(aes(Date, Margin_of_Victory)) +
+    ggplot(aes(Date1, Margin_of_Victory)) +
     geom_col(alpha = 0.7, aes(fill = Outcome, text = paste(Date, '<br>',
-                                                                            Outcome, ' vs', Opponent, '<br>',
-                                                                            'Scoreline: ', team_pts, ' - ', Opp_PTS, '<br>',
-                                                                            'Margin of Victory: ', Margin_of_Victory))) +
-    scale_y_continuous(breaks = c(-25, -20, -15, -10, -5, 0, 5, 10, 15, 20, 25)) +
+                                                           Outcome, ' vs', Opponent, '<br>',
+                                                           'Scoreline: ', team_pts, ' - ', Opp_PTS, '<br>',
+                                                           'Margin of Victory: ', Margin_of_Victory))) +
+    scale_y_continuous(breaks = c(-50, -45, -40, -35, -30, -25, -20, -15, -10, -5, 0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50)) +
     scale_fill_manual(values = c("red", "dark green")) +
+    scale_x_discrete() +
     labs(x = NULL,
          y = 'Margin of Victory',
          title = paste0(df$FullName[1], ' Game Log History \n 2019-2020 NBA Season'),
          subtitle = '2019-2020 NBA Season') +
-    theme_jacob()
+    theme_jacob() +
+    theme(axis.text.x = element_blank())
+  
   
   ggplotly(p, tooltip = c('text'))
   
@@ -565,9 +634,11 @@ schedule_main <- schedule %>%
   mutate(Vs = replace_na(Vs, 'Vs'),
          Date = as.Date(Date, format = '%a, %b %d, %Y'),
          `Day of Week` = wday(Date, label = TRUE, abbr = FALSE),
-         `Start Time (EST)` = str_replace_all(`Start Time (EST)`, 'p', ' PM')) %>%
-  select(Date, `Day of Week`, `Start Time (EST)`, `Team 1`, Vs, `Team 2`) %>%
-  filter(Date >= todayDate)
+         `Start Time (EST)` = str_replace_all(`Start Time (EST)`, 'p', ' PM'),
+         bb = substr(`Start Time (EST)`, 0, 4)) %>%
+  filter(Date >= todayDate) %>%
+  arrange(Date, bb) %>%
+  select(Date, `Day of Week`, `Start Time (EST)`, `Team 1`, Vs, `Team 2`)
 
 team_rank <- team_wins %>%
   mutate(Rank = row_number()) %>%
@@ -696,12 +767,17 @@ bubble_shooting_percentages <- ee %>%
             total_losses = sum(Losses)) %>%
   ungroup() %>%
   mutate(WinPercentage = (total_wins / (total_wins + total_losses)),
-         WinPercentage = round(WinPercentage, 4))
+         WinPercentage = round(WinPercentage, 3))
 
 bubble_bans <- bubble_shooting_percentages %>%
   select(WinPercentage) %>%
   mutate(WinPercentage = WinPercentage * 100,
-         WinPercentage = round(WinPercentage, 2))
+         WinPercentage = round(WinPercentage, 1))
+
+rm(dd, ee)
+
+# if the team is shooting BETTER than pre bubble then their win % is -blank-
+# if the team is shooting WORSE in the bubble then their win % is -blank-
 
 plot_bubble_shooting <- function(df) {
   p <- df %>%
@@ -713,7 +789,7 @@ plot_bubble_shooting <- function(df) {
     scale_x_continuous(labels = percent_format()) +
     annotate('text', x = -0.03, y = 19.5, label = paste0('Win Percentage: ', bubble_bans[1,],'%'), color = 'deepskyblue3') +
     annotate('text', x = 0.03, y = 3.5, label = paste0('Win Percentage: ', bubble_bans[2,],'%'), color = 'firebrick2') +
-    labs(title = 'Which Teams are Hot from 3 Point Range in the Orlando Bubble ?',
+    labs(title = 'Which Teams are Hot from 3 Point Range in the Orlando Bubble ? (Includes Playoffs)',
          x = '3P% Differential (Pre-Bubble vs Bubble)',
          y = NULL) +
     theme_jacob() +
@@ -721,3 +797,288 @@ plot_bubble_shooting <- function(df) {
   
   ggplotly(p, tooltip = c('text'))
 }
+
+player_regular_gp <- gameLogs_Two %>%
+  filter(Date <= '2020-08-15') %>%
+  group_by(Player) %>%
+  summarise(GP = n())
+
+player_playoffs_gp <- gameLogs_Two %>%
+  filter(Date >= '2020-08-15') %>%
+  group_by(Player) %>%
+  summarise(GP_p = n())
+  
+regular_stats <- gameLogs_Two %>%
+  filter(Date <= '2020-08-15') %>%
+  group_by(Player, Team) %>%
+  summarise(Avg_Pts_r = mean(PTS),
+            Avg_plusminus_r = mean(PlusMinus),
+            tot_FTA = sum(FTA),
+            tot_FGA = sum(FGA),
+            tot_PTS = sum(PTS),
+            tot_3p_percent_r = sum(threePFGMade) / sum(threePAttempted),
+            tot_3p_percent_r = round(tot_3p_percent_r, 3)) %>%
+  left_join(player_regular_gp) %>%
+  mutate(season_ts_percent = tot_PTS / (2 * (tot_FGA + (0.44 * tot_FTA)))) %>%
+  ungroup() %>%
+  select(-tot_FGA, -tot_FTA, -tot_PTS)
+
+playoffs_stats <- gameLogs_Two %>%
+  filter(Date >= '2020-08-15') %>%
+  group_by(Player, Team) %>%
+  summarise(Avg_Pts_p = mean(PTS),
+            Avg_plusminus_p = mean(PlusMinus),
+            tot_FTA = sum(FTA),
+            tot_FGA = sum(FGA),
+            tot_PTS = sum(PTS),
+            tot_3p_percent_p = sum(threePFGMade) / sum(threePAttempted),
+            tot_3p_percent_p = round(tot_3p_percent_p, 3)) %>%
+  left_join(player_playoffs_gp) %>%
+  mutate(playoffs_ts_percent = tot_PTS / (2 * (tot_FGA + (0.44 * tot_FTA)))) %>%
+  ungroup() %>%
+  select(-tot_FGA, -tot_FTA, -tot_PTS)
+
+playoffs_differentials <- playoffs_stats %>%
+  left_join(regular_stats) %>%
+  mutate(PPG_differential = Avg_Pts_p - Avg_Pts_r,
+         TS_differential = playoffs_ts_percent - season_ts_percent,
+         TS_differential = round(TS_differential, 3),
+         PPG_differential = round(PPG_differential, 1),
+         season_ts_percent = round(season_ts_percent, 3),
+         playoffs_ts_percent = round(playoffs_ts_percent, 3),
+         Avg_Pts_r = round(Avg_Pts_r, 1),
+         Avg_Pts_p = round(Avg_Pts_p, 1),
+         Avg_plusminus_p = round(Avg_plusminus_p, 2),
+         Avg_plusminus_r = round(Avg_plusminus_r, 2),
+         tot_3p_differential = tot_3p_percent_p - tot_3p_percent_r,
+         tot_3p_differential = round(tot_3p_differential, 3),
+         Player = fct_reorder(Player, PPG_differential))
+
+rm(playoffs_stats, regular_stats)
+
+plot_ppg_differentials <- function(df) {
+  df <- df %>%
+    filter(!is.na(PPG_differential))
+  
+  if (nrow(df) > 0) {
+    p <- df %>%
+      ggplot(aes(PPG_differential, Player, fill = PPG_differential > 0 )) +
+      geom_col(aes(text = paste0(Player, '<br>', 
+                                 'Regular Season PPG: ', Avg_Pts_r, '<br>',
+                                 'Playoffs PPG: ', Avg_Pts_p, '<br>',
+                                 'Differential: ', PPG_differential, '<br>',
+                                 'Playoff Games Played: ', GP_p))) +
+      labs(title = 'Which Players are over or underperforming in the 2020 NBA Playoffs ?',
+           x = 'PPG Differential (Regular Season vs Playoffs)',
+           y = NULL) +
+      theme_jacob() +
+      theme(legend.position='none')
+    ggplotly(p, tooltip = c('text'))
+  }
+  else {
+    ggplot() +
+      theme_void() +
+      geom_text(aes(0, 0, label = "")) +
+      labs(x = NULL,
+           y = NULL,
+           title = 'This Team did not make the 2019-2020 NBA Playoffs, so no Differential Data can be found') +
+      theme_jacob() +
+      theme(axis.text.x = element_blank(),
+            axis.text.y = element_blank())
+  }
+}
+
+plot_ts_differentials <- function(df){
+  df <- df %>%
+    mutate(Player = fct_reorder(Player, TS_differential)) %>%
+    filter(!is.na(TS_differential))
+  
+  if (nrow(df) > 0) {
+  p <- df %>%
+    ggplot(aes(TS_differential, Player, fill = TS_differential > 0 )) +
+    geom_col(aes(text = paste0(Player, '<br>', 
+                               'Regular Season TS%: ', season_ts_percent * 100, '%', '<br>',
+                               'Playoffs TS%: ', playoffs_ts_percent * 100, '%', '<br>',
+                               'Differential: ', TS_differential * 100, '%', '<br>',
+                               'Playoff Games Played: ', GP_p))) +
+    scale_x_continuous(labels = percent_format()) +
+    labs(title = 'Which Players are over or underperforming in the 2020 NBA Playoffs ?',
+         x = 'TS% Differential (Regular Season vs Playoffs',
+         y = NULL) +
+    theme_jacob() +
+    theme(legend.position='none')
+  ggplotly(p, tooltip = c('text'))
+  }
+  else {
+    ggplot() +
+      theme_void() +
+      geom_text(aes(0,0,)) +
+      labs(x = NULL,
+           title = 'This Team did not make the 2019-2020 NBA Playoffs')
+      theme_jacob()
+  }
+}
+
+bubble_regular_wins <- gameLogs_Two %>%
+  filter(Type == 'Regular Season') %>%
+  filter(Date >= '2020-07-29' & Date <= '2020-08-15') %>%
+  group_by(Team, Outcome) %>%
+  distinct(GameID) %>%
+  summarise(n = n()) %>%
+  pivot_wider(names_from = Outcome, values_from = n) %>%
+  select(Team, W, L) %>%
+  mutate(L = replace_na(L, 0),
+         WinPercentage_regular = W / (W + L),
+         WinPercentage_regular = round(WinPercentage_regular, 3))
+  
+bubble_playoff_wins <- gameLogs_Two %>%
+  filter(Type == 'Playoffs') %>%
+  group_by(Team, Outcome) %>%
+  distinct(GameID) %>%
+  summarise(n = n()) %>%
+  pivot_wider(names_from = Outcome, values_from = n) %>%
+  select(Team, W, L) %>%
+  mutate(L = replace_na(L, 0),
+         W = replace_na(W, 0),
+         WinPercentage_playoffs = W / (W + L),
+         WinPercentage_playoffs = round(WinPercentage_playoffs, 3))
+
+playoffs_valuebox_function <- function(df){
+  if (nrow(df) > 0){
+    valueBox(value = paste0(df$W, '-', df$L), "Playoffs W/L", icon = icon("list"), color = "purple")
+  }
+  else {
+    valueBox(value = paste0('No Data Available'), "Did not Qualify for Playoffs", icon = icon("list"), color = "purple")
+  }
+}
+
+bubble_valuebox_function <- function(df){
+  if (nrow(df) > 0){
+    valueBox(value = paste0(df$W, '-', df$L), "Bubble Seeding Games W/L", icon = icon("list"), color = "purple")
+  }
+  else {
+    valueBox(value = paste0('No Data Available'), "Did not Qualify for Bubble", icon = icon("list"), color = "purple")
+  }
+}
+
+####
+x <- playoffs_differentials %>%
+  filter(Avg_Pts_p >= 10) %>%
+  ggplot(aes(Avg_Pts_p, playoffs_ts_percent, fill = TS_differential > 0)) +
+  geom_point(aes(size = 1.1, text = paste0(Player, '<br>',
+                               'Playoffs PPG: ', Avg_Pts_p, '<br>',
+                               'Playoffs TS%: ', playoffs_ts_percent, '<br>',
+                               'TS% Differential: ', TS_differential, '<br>',
+                               'Playoff Games Played: ', GP_p))) +
+  scale_y_continuous(labels = percent_format()) +
+  labs(x = 'Playoffs PPG',
+       y = 'Shooting Efficiency (TS%)', 
+       title = 'Shooting Efficiency for all 10+ PPG Scorers in the 2019-2020 NBA Playoffs') +
+  theme_jacob() +
+  theme(legend.position='none')
+
+ggplotly(x, tooltip = c('text'))
+
+clutch_games <- team_mov %>%
+  filter(Margin_of_Victory >= 1) %>%
+  mutate(clutch_game = case_when(Margin_of_Victory <= 5 ~ 'Clutch Game',
+                                 Margin_of_Victory >= 5 & Margin_of_Victory <= 10 ~ '10 Pt Game',
+                                 Margin_of_Victory > 10 ~ 'Blowout Game',
+                                 TRUE ~ 'Help'),
+         season_date = case_when(Date <= '2020-07-29' ~ 'Pre-Bubble',
+                                 Date > '2020-07-29' ~ 'Bubble',
+                                 TRUE ~ 'Help')) %>%
+  select(GameID, Date, Type, clutch_game, season_date, Margin_of_Victory)
+
+# make visualizations of these two.
+clutch_games %>%
+  group_by(season_date, clutch_game) %>%
+  count() %>%
+  arrange(desc(n)) %>%
+  ungroup() %>%
+  group_by(season_date) %>%
+  mutate(pct_total = n / sum(n))
+
+game_types <- clutch_games %>%
+  group_by(Type, clutch_game) %>%
+  count() %>%
+  arrange(desc(n)) %>%
+  ungroup() %>%
+  group_by(Type) %>%
+  mutate(pct_total = n / sum(n)) %>%
+  ungroup() %>%
+  mutate(explanation = case_when(clutch_game == 'Blowout Game' ~ 'more than 10 points',
+                                 clutch_game == 'Clutch Game' ~ '5 points or less',
+                                 TRUE ~ 'between 6 - 10 points'))
+
+game_types_plot <- function(df){
+  p <- df %>%
+    ggplot(aes(clutch_game, pct_total, fill = Type)) +
+    geom_col(position = 'dodge', aes(text = paste0(Type, '<br>',
+                                                   clutch_game, 's account for ', round(pct_total * 100, 1), '% of all ',
+                                                   Type, ' games.', '<br>', 'Number of Observations: ', n, '<br>', '<br>',
+                                                   clutch_game, 's are defined as games that were decided by ', explanation))) +
+    scale_y_continuous(labels = percent_format()) +
+    labs(x = 'Game Type',
+         y = 'Percent of Total (Regular Season vs Playoffs)',
+         fill = NULL,
+         title = 'Are there more Blowouts or Clutch Games in the 2019-2020 NBA Playoffs ?') +
+    theme_jacob() +
+    theme(plot.title = element_text(hjust = 0.5), legend.position = 'top')
+  
+  
+  ggplotly(p, tooltip = c('text')) %>%
+    layout(legend = list(orientation = "h", x = 0.35, y = 1.05))
+}
+game_types_plot(game_types)
+
+
+opp_playoffs_stats <- gameLogs_Two %>%
+  filter(Date >= '2020-08-15') %>%
+  group_by(Team, GameID) %>%
+  summarise(opp_pts_scored = sum(PTS)) %>%
+  rename(Opponent = Team) %>%
+  mutate_if(is.numeric, round, 1)
+
+
+team_playoffs_stats <- gameLogs_Two %>%
+  filter(Date >= '2020-08-15') %>%
+  group_by(Team, GameID, Outcome, Opponent) %>%
+  summarise(team_pts_scored = sum(PTS)) %>%
+  left_join(opp_playoffs_stats) %>%
+  ungroup() %>%
+  group_by(Team) %>%
+  mutate_if(is.numeric, round, 1) %>%
+  summarise(p_avg_team_pts_scored = mean(team_pts_scored),
+            p_avg_opp_pts_scored = mean(opp_pts_scored),
+            p_differential = p_avg_team_pts_scored - p_avg_opp_pts_scored) %>%
+  mutate_if(is.numeric, round, 1)
+
+
+
+opp_regular_stats <- gameLogs_Two %>%
+  filter(Date <= '2020-08-15') %>%
+  group_by(Team, GameID) %>%
+  summarise(opp_pts_scored = sum(PTS)) %>%
+  rename(Opponent = Team) %>%
+  mutate_if(is.numeric, round, 1)
+
+
+team_regular_stats <- gameLogs_Two %>%
+  filter(Date <= '2020-08-15') %>%
+  group_by(Team, GameID, Outcome, Opponent) %>%
+  summarise(team_pts_scored = sum(PTS)) %>%
+  left_join(opp_regular_stats) %>%
+  ungroup() %>%
+  group_by(Team) %>%
+  mutate_if(is.numeric, round, 1) %>%
+  summarise(r_avg_team_pts_scored = mean(team_pts_scored),
+         r_avg_opp_pts_scored = mean(opp_pts_scored),
+         r_differential = r_avg_team_pts_scored - r_avg_opp_pts_scored) %>%
+  mutate_if(is.numeric, round, 1)
+
+team_actual_stats <- team_regular_stats %>%
+  left_join(team_playoffs_stats) %>%
+  filter(!is.na(p_avg_team_pts_scored))
+
+rm(opp_regular_stats, team_regular_stats, opp_playoffs_stats, team_playoffs_stats)
