@@ -29,7 +29,7 @@ Sys.setenv (TZ="America/Los_Angeles")
 # options(gargle_oauth_cache = ".secrets")
 # gs4_auth(path = '.secrets', email = 'jyablonski9@gmail.com')
 # drive_auth(cache = ".secrets", email = "jyablonski9@gmail.com")
-gs4_auth_configure(api_key = "AIzaSyAzox2eJqkur-VSuSxwIRbKCs_-m-ky4d8")
+gs4_auth_configure(api_key = "MY KEY")
 gs4_deauth()
 
 today <- Sys.Date()
