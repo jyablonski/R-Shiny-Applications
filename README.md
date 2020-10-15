@@ -8,6 +8,6 @@
 
 [NBA Dashboard](https://jyablonski.shinyapps.io/nba_r_shiny/)
 
-[NFL Dashboard (Work in Progress](https://jyablonski.shinyapps.io/nfl_rshiny/)
+[NFL Dashboard (Work in Progress)](https://jyablonski.shinyapps.io/nfl_rshiny/)
 
 
