@@ -4,7 +4,7 @@ This repository contains a list of my R Shiny Dashboard Applications.  R Shiny i
 
 Each application comes with an About Page that talks about the dashboard and some of its features.  R Shiny is unique compared to Tableau because I'm able to use it to execute web scraping tasks to automate the data retrieval process for some of the dashboards (COVID), as well as communicate with APIs to get up-to-date data (Spotify).  
 
-[COVID-19 Dashboard](https://jyablonski.shinyapps.io/covid-19_rshiny/)
+[COVID-19 Dashboard](https://jyablonski.shinyapps.io/covid19)
 
 [Amazon Reviews Dashboard](https://jyablonski.shinyapps.io/amazon-dashboard/)
 
