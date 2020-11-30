@@ -18,18 +18,16 @@ library(fs)
 library(googlesheets4)
 library(googledrive)
 library(scales)
-library(cowplot)
-library(prismatic)
-library(hexbin)
 library(jsonlite)
 library(httr)
+library(stringi)
 
 Sys.setenv (TZ="America/Los_Angeles")
 # designate project-specific cache
 # options(gargle_oauth_cache = ".secrets")
 # gs4_auth(path = '.secrets', email = 'jyablonski9@gmail.com')
 # drive_auth(cache = ".secrets", email = "jyablonski9@gmail.com")
-gs4_auth_configure(api_key = "MY KEY")
+gs4_auth_configure(api_key = "AIzaSyAzox2eJqkur-VSuSxwIRbKCs_-m-ky4d8")
 gs4_deauth()
 
 today <- Sys.Date()
@@ -124,13 +122,49 @@ getSchedule <- function(){
   return(month_df1)
 }
 
+get_transactions <- function(){
+  url <- paste0('https://www.basketball-reference.com/leagues/NBA_2021_transactions.html')
+  webpage <- read_html(url)
+  
+  new1 <- html_nodes(webpage, "div#content > ul > li") %>% 
+    map_df(~{
+      data_frame(
+        Date = html_node(.x, "span") %>% html_text(trim = TRUE),
+        Event = html_nodes(.x, "p") %>% html_text(trim = TRUE)
+      )
+    }) 
+  new2 <- new1 %>%
+    mutate(Date2 = as.Date(Date, tryFormats = '%B %d, %Y'),
+           date3 = mdy(Date)) %>%
+    filter(!str_detect(Event, 'G-League'),
+           Date2 >= '2020-04-01') %>%
+    select(Date, Event)
+  return(new2)
+}
+
+getContracts <- function(){
+  url <- 'https://www.basketball-reference.com/contracts/players.html'
+  webpage <- read_html(url)
+  col_names <- webpage %>%
+    html_table() %>%
+    as.data.frame() %>%
+    filter(Salary != 'Salary',
+           Salary != '2019-20',
+           Salary.1 != "") %>%
+    select(Var.2, Var.3, Salary.1, Var.11) %>%
+    rename(Player = Var.2, Team = Var.3, Salary = Salary.1, Total_Salary_Owed = Var.11) %>%
+    mutate(Player = stri_trans_general(Player,  id = "Latin-ASCII"))
+}
+
+
 # Loading in Data 
 injuryData <- get_injuries_data()
 salary <- read_csv('data/salary.csv')
 gameLogs <- get_gamelogs_data()
 dataBREFTeamJoined <- teamStatsDownload()
 schedule <- getSchedule()
-
+transactions <- get_transactions()
+contracts <- getContracts()
 
 rm(dataBREFMiscTeams, dataBREFPerGameTeams, dataBREFPerPossTeams, dataBREFPlayerAdvanced, dataBREFShootingTeams,
    dataBREFStandings, dataBREFStandingsDivTeams, dataBREFTotalsTeams, dataBREFStandingsConfTeams, df_dict_nba_players,
@@ -574,7 +608,7 @@ value_plot <- function(df){
     ggplot(aes(as.numeric(Salary), MVPCalc, fill = GV)) +
     geom_point(aes(text = paste0(Player, '<br>',
                                  'Salary: ', formatC(Salary, format = 'f', big.mark = ",", digits = 0), '<br>',
-                                 'MVP Metric: ', round(MVPCalc, 2), '<br>',
+                                 'Player Value Metric: ', round(MVPCalc, 2), '<br>',
                                  'GP: ', GP)), size = 2.5, shape = 21, alpha = 0.7) +
     scale_x_continuous(labels = label_dollar()) +
     theme_jacob() +
@@ -1028,9 +1062,8 @@ game_types_plot <- function(df){
   
   
   ggplotly(p, tooltip = c('text')) %>%
-    layout(legend = list(orientation = "h", x = 0.35, y = 1.05))
+    layout(legend = list(orientation = "h", x = 0.35, y = 1.03))
 }
-game_types_plot(game_types)
 
 
 opp_playoffs_stats <- gameLogs_Two %>%
@@ -1082,3 +1115,61 @@ team_actual_stats <- team_regular_stats %>%
   filter(!is.na(p_avg_team_pts_scored))
 
 rm(opp_regular_stats, team_regular_stats, opp_playoffs_stats, team_playoffs_stats)
+
+# can filter teams & season type in r shiny.
+team_clutch_games_stats_r <- team_mov %>%
+  filter(Type == 'Regular Season') %>%
+  mutate(clutch_game = case_when(Margin_of_Victory <= 5 & Margin_of_Victory > 0 ~ 'Clutch Game',
+                                 Margin_of_Victory >= 5 & Margin_of_Victory <= 10 ~ '10 Pt Game',
+                                 Margin_of_Victory > 10 ~ 'Blowout Game',
+                                 Margin_of_Victory >= -5 & Margin_of_Victory < 0 ~ 'Clutch Game',
+                                 Margin_of_Victory <= -5 & Margin_of_Victory >= -10 ~ '10 Pt Game',
+                                 Margin_of_Victory < -10 ~ 'Blowout Game',
+                                 TRUE ~ 'Clutch Game'),
+         season_date = case_when(Date <= '2020-07-29' ~ 'Pre-Bubble',
+                                 Date > '2020-07-29' ~ 'Bubble',
+                                 TRUE ~ 'Help')) %>%
+  select(Team, Outcome, GameID, Date, Type, clutch_game, season_date, Margin_of_Victory) %>%
+  group_by(Team, clutch_game, Outcome) %>%
+  count() %>%
+  ungroup() %>%
+  group_by(Team, clutch_game) %>%
+  mutate(win_pct = n / sum(n),
+         win_pct = round(win_pct, 3),
+         games_category = sum(n))
+
+team_clutch_games_stats_p <- team_mov %>%
+  filter(Type == 'Playoffs') %>%
+  mutate(clutch_game = case_when(Margin_of_Victory <= 5 & Margin_of_Victory > 0 ~ 'Clutch Game',
+                                 Margin_of_Victory >= 5 & Margin_of_Victory <= 10 ~ '10 Pt Game',
+                                 Margin_of_Victory > 10 ~ 'Blowout Game',
+                                 Margin_of_Victory >= -5 & Margin_of_Victory < 0 ~ 'Clutch Game',
+                                 Margin_of_Victory <= -5 & Margin_of_Victory >= -10 ~ '10 Pt Game',
+                                 Margin_of_Victory < -10 ~ 'Blowout Game',
+                                 TRUE ~ 'Clutch Game'),
+         season_date = case_when(Date <= '2020-07-29' ~ 'Pre-Bubble',
+                                 Date > '2020-07-29' ~ 'Bubble',
+                                 TRUE ~ 'Help')) %>%
+  select(Team, Outcome, GameID, Date, Type, clutch_game, season_date, Margin_of_Victory) %>%
+  group_by(Team, clutch_game, Outcome) %>%
+  count() %>%
+  ungroup() %>%
+  group_by(Team, clutch_game) %>%
+  mutate(win_pct = n / sum(n),
+         win_pct = round(win_pct, 3),
+         games_category = sum(n))
+
+# to do - last 2 weeks / last 5 games ppg + TS%
+
+# prac <- gameLogs %>%
+#   select(Player) %>%
+#   distinct() %>%
+#   full_join(contracts)
+# 
+# real_prac_date <- todayDate - 14
+# 
+# bb <- gameLogs_Two %>%
+#   filter(Date >= real_prac_date)
+# 
+# prac_date <- as.Date('2020-10-15') - 14
+# real_prac_date <- todayDate - 14
