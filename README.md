@@ -8,7 +8,7 @@ Each application comes with an About Page that talks about the dashboard and som
 
 [Amazon Reviews Dashboard](https://jyablonski.shinyapps.io/amazon-dashboard/)
 
-[NBA Dashboard](https://jyablonski.shinyapps.io/nba_r_shiny/)
+[NBA Dashboard](https://jyablonski.shinyapps.io/nbadashboard/)
 
 [NFL Dashboard (Work in Progress)](https://jyablonski.shinyapps.io/nfl_rshiny/)
 
