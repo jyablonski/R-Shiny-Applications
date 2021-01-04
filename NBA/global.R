@@ -35,6 +35,7 @@ todayDate <- Sys.Date()
 yesterday <- Sys.Date()-1
 isSeasonActive <- TRUE
 today <-  format(today, format = "%B %d, %Y")
+updated_date <- strftime(Sys.time(), format = "%B %d, %Y - %R %Z")
 
 
 # custom theme
@@ -235,7 +236,6 @@ get_advanced_stats <- function(){
 # Loading in Data 
 acronyms <- read_csv('data/acronyms.csv')
 injuryData <- get_injuries_data()
-salary <- read_csv('data/salary.csv')
 gameLogs <- get_gamelogs_data()
 dataBREFTeamJoined <- read_csv('data/dataBREFTeamJoined.csv')
 team_ratings <- get_advanced_stats()
@@ -244,10 +244,6 @@ transactions <- get_transactions()
 contracts <- read_csv('data/contracts1.csv')
 pbp_data <- get_playbyplay_data()
 last_season_wins <- read_csv('data/lastseasonwins.csv')
-
-rm(dataBREFMiscTeams, dataBREFPerGameTeams, dataBREFPerPossTeams, dataBREFPlayerAdvanced, dataBREFShootingTeams,
-   dataBREFStandings, dataBREFStandingsDivTeams, dataBREFTotalsTeams, dataBREFStandingsConfTeams, df_dict_nba_players,
-   df_dict_nba_teams, df_nba_player_dict)
 
 ###### Data Extraction Complete ######
 # Data Manipulation ----
@@ -318,7 +314,8 @@ gameLogs_Two <- gameLogs %>%
   left_join(salary_Merge) %>%
   group_by(Player) %>%
   mutate(MVPCalc = (mean(PTS) + (mean(PlusMinus) + (2 * mean(STL + BLK) + (0.5 * mean(TRB)) -  (1.5 * mean(TOV)) + mean(AST)))),
-         Date = as.Date(Date)) %>%
+         Date = as.Date(Date),
+         MVPCalc = round(MVPCalc, 1)) %>%
   ungroup() %>%
   mutate(MVPCalc_game = (PTS + (2 * PlusMinus) + (2 * STL + BLK) + (0.5 * TRB) - TOV + AST)) %>%
   left_join(GP) %>%
@@ -454,7 +451,10 @@ team_wins <- gameLogs_Two %>%
   rename(Wins = W, Losses = L) %>%
   left_join(win_streak) %>%
   left_join(full_team_names) %>%
-  mutate(WinPercentage = (Wins / (Wins + Losses))) %>%
+  mutate(WinPercentage = (Wins / (Wins + Losses)),
+         projected_wins = WinPercentage * 72,
+         projected_wins = round(projected_wins, 0),
+         projected_losses = 72 - projected_wins) %>%
   arrange(FullName)
 
 conferences <- dataBREFTeamJoined %>%
@@ -467,7 +467,7 @@ conferences <- dataBREFTeamJoined %>%
 east_standings <- team_wins %>%
   left_join(conferences) %>%
   filter(Conference == 'Eastern') %>%
-  select(-Conference) %>%
+  select(-Conference, projected_wins, projected_losses) %>%
   mutate(Seed = min_rank(desc(WinPercentage))) %>%
   select(-WinPercentage) %>%
   select(Seed, FullName, Wins, Losses, `Win Streak`, 'Active Injuries') %>%
@@ -477,13 +477,11 @@ east_standings <- team_wins %>%
 west_standings <- team_wins %>%
   left_join(conferences) %>%
   filter(Conference == 'Western') %>%
-  select(-Conference) %>%
+  select(-Conference, projected_wins, projected_losses) %>%
   mutate(Seed = min_rank(desc(WinPercentage))) %>%
   select(-WinPercentage) %>%
   select(Seed, FullName, Wins, Losses, `Win Streak`, 'Active Injuries') %>%
   rename(Team = FullName) %>%
-  mutate(Seed = replace(Seed, Team == 'Houston Rockets', 5),
-         Seed = replace(Seed, Team == 'Utah Jazz', 6)) %>%
   arrange(Seed)
 
 
@@ -501,7 +499,9 @@ top_20pt_scorers <- gameLogs_Two %>%
   arrange(desc(MVPCalc)) %>%
   mutate(Rank = row_number(),
          Top5 = case_when(Rank <= 5 ~ 'Top 5 MVP Candidate',
-                          TRUE ~ 'Other'))
+                          TRUE ~ 'Other')) %>%
+  left_join(team_wins) %>%
+  select(Player:Losses)
 
 top5 <- top_20pt_scorers %>%
   filter(Top5 == 'Top 5 MVP Candidate') %>%
@@ -559,13 +559,13 @@ team_ratings_logo <- team_ratings %>%
 
 top20_plot <- function(df){
   p <- df %>%
-    ggplot(aes(avg_PTS, season_ts_percent, color = Top5, text = paste(Player, '<br>',
-                                                                      Team, '<br>',
+    ggplot(aes(avg_PTS, season_ts_percent, color = Top5, text = paste0(Player, '<br>',
+                                                                      Team, ' (', Wins, '-', Losses, ')', '<br>',
                                                                       'PPG: ', round(avg_PTS, 1), '<br>',
                                                                       'TS%: ', round(season_ts_percent, 3), '<br>',
                                                                       'Games Played: ', GP))) +
     geom_point(size = 6, alpha = 0.7, pch = 21, color = 'black', aes(fill = Top5)) +
-    scale_y_continuous(labels = scales::percent, limits=c(.40, .88), breaks=seq(.40, .88, by = .08)) + 
+    scale_y_continuous(labels = scales::percent, limits=c(.48, .80), breaks=seq(.48, .80, by = .08)) + 
     scale_color_manual(values = c('light blue', 'orange')) +
     scale_fill_manual(values = c('light blue', 'orange')) +
     labs(color = 'Top 5 MVP Candidate', fill = 'Top 5 MVP Candidate',
@@ -842,7 +842,11 @@ contract_df <- gameLogs_Two %>%
          color_var = case_when(rankish_text >= 60 & Salary >= 25000000 ~ 'Superstars',
                                rankish_text >= 90 ~ 'Great Value',
                                rankish_text < 90 & rankish_text >= 20 ~ 'Normal',
-                               TRUE ~ 'Bad Value'))
+                               TRUE ~ 'Bad Value')) %>%
+  group_by(Team) %>%
+  mutate(team_gp = max(GP)) %>%
+  ungroup() %>%
+  mutate(games_missed = team_gp - GP)
 
 contracts_dist_plot <- function(df){
   df %>%
@@ -871,6 +875,7 @@ value_plot <- function(df){
                                  'Salary: $', formatC(Salary, format = 'f', big.mark = ",", digits = 0), '<br>',
                                  'Player Value Metric: ', MVPCalc, '<br>',
                                  'Games Played: ', GP, '<br>',
+                                 'Games Missed: ', games_missed, '<br>',
                                  Player, ' is in the top ', rankish_text, '% Percentile for all players in this Salary Group (',
                                  salary_rank, ')')),
                size = 2.5, shape = 21, alpha = 0.7) +
@@ -884,7 +889,7 @@ value_plot <- function(df){
   
   ggplotly(p, tooltip = c('text'))
 }
-value_plot(contract_df)
+# value_plot(contract_df)
 
 # contracts_dist_plot(contract_df)
 
@@ -925,7 +930,7 @@ gp_valuebox_function <- function(df){
   else {
     valueBox(
       value = df$full_date, HTML(paste0("Next Gameday Date <br> <br> ", df$gp,
-                                             " Upcoming Games")),
+                                             " Upcoming Games | See Schedule")),
       icon = icon("calendar"), color = "blue"
     )
   }
@@ -939,9 +944,44 @@ contract_value <- contracts %>%
          team_max_value = (sum(Salary) * team_gp),
          team_achieved_value = (sum(Salary * GP))) %>%
   ungroup() %>%
-  mutate(missing_value = team_max_value - team_achieved_value,
-         pct_achieved = team_achieved_value / team_max_value,
-         pct_missing = missing_value / team_max_value,
-         pct_achieved = round(pct_achieved, 3),
-         pct_missing = round(pct_missing, 3))
+  mutate(team_missing_value = team_max_value - team_achieved_value,
+         team_pct_achieved = team_achieved_value / team_max_value,
+         team_pct_missing = team_missing_value / team_max_value,
+         team_pct_achieved = round(team_pct_achieved, 3),
+         team_pct_missing = round(team_pct_missing, 3),
+         player_achieved_value = GP * Salary,
+         player_missing_value = ((team_gp * Salary) - player_achieved_value),
+         player_pct_missing = player_missing_value / (team_gp * Salary),
+         player_pct_missing = round(player_pct_missing, 3))
+
+# teams are missing y% of the value of their contracts due to injury, COVID-related health absences, or DNPs.
+
+team_contract_value <- contract_value %>%
+  select(Team, team_gp:team_pct_missing) %>%
+  distinct() %>%
+  left_join(team_wins) %>%
+  mutate(Team = fct_reorder(Team, team_pct_missing))
+
+team_contract_value_plot <- function(df){
+  p <- df %>%
+    ggplot(aes(team_pct_missing, Team, fill = WinPercentage, text = paste0(FullName, '<br>',
+                                                                          'Record: ', Wins, '-', Losses, '<br>',
+                                                                          'Total Contract Value Missing: ', (team_pct_missing * 100), '%',
+                                                                           '<br>',
+                                                                          'Win Percentage: ', round(WinPercentage, 2)))) +
+    geom_col() +
+    geom_vline(aes(xintercept = mean(team_pct_missing), alpha = 0.5)) +
+    scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +
+    scale_fill_gradient(low = 'red', high = 'green') +
+    annotate('text', x = mean(df$team_pct_missing) + 0.07, y = 3,
+             label = paste0(round(mean(df$team_pct_missing * 100), 2), '% (League Average)')) +
+    labs(x = '% of Total Contract Value Missing',
+         y = NULL,
+         title = 'Which Teams are missing the most Contract Value from Injury, COVID-related Absences, or DNPs?',
+         fill = 'Win Percentage') +
+    theme_jacob()
+  
+  ggplotly(p, tooltip = c('text')) %>%
+    layout(legend = list(orientation = "h", x = 0.35))
+}
 
