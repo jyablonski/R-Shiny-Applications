@@ -7,8 +7,21 @@ source('content/body_schedule.R')
 
 
 ui <- fluidPage(
-  tags$head(includeHTML(("google-analytics.html"))),
-  navbarPage('2020-2021 NBA Season Dashboard',
+  tags$head(includeHTML(("google-analytics.html")),
+            tags$style(HTML( ".selectize-input {background-color:#F0F0F0;
+                      color:#000000;
+                      border-color:#000000;
+                      border-style:solid;
+                      border-width:2px;
+                      border-radius:5%;
+                      font-size:15px;}"))),
+  tags$style(type = "text/css", ".container-fluid {padding-left: 0px; padding-right: 0px !important;}"),
+  tags$style(type = "text/css", ".navbar {margin-bottom: 0px; padding-left: 15px;"),
+  tags$style(type = "text/css", ".content {padding: 0px;}"),
+  tags$style(type = "text/css", ".row {margin-left: 0px; margin-right: 0px;"),
+  tags$style(HTML(".col-sm-12 { padding: 5px; margin-bottom: -15px; }")),
+  tags$style(HTML(".col-sm-6 { padding: 5px; margin-bottom: -15px; }")),
+  navbarPage(' 2020-2021 NBA Season Dashboard',
              tabPanel("Overview", dashboardPage(title = "Overview",
                                                 header = dashboardHeader(disable = TRUE),
                                                 sidebar = dashboardSidebar(disable = TRUE),
@@ -50,7 +63,12 @@ server <- function(input, output, session) {
                                                                     lengthChange = FALSE, info = FALSE,
                                                                     paging = FALSE))
   
-  output$transactions_table <- DT::renderDataTable(transactions)
+  selected_team_transactions <- reactive({
+    transactions %>%
+      filter(str_detect(Event, input$select_team))
+  })
+  
+  output$transactions_table <- DT::renderDataTable(selected_team_transactions())
   
   output$schedule_table <- DT::renderDataTable(schedule_main, rownames = FALSE,
                                                options = list(pageLength = 20))
@@ -81,18 +99,47 @@ server <- function(input, output, session) {
 
   output$top_15 <- DT::renderDataTable(datatable(top_15_yesterday, rownames = FALSE,
                                                  options = list(searching = FALSE, pageLength = 15, 
-                                                                lengthChange = FALSE, info = FALSE, paging = FALSE)) %>%
-                                         formatCurrency(6, currency = "$", interval = 3, mark = ",", digits = 0) %>%
-                                         formatStyle(c(1:dim(top_15_yesterday)[2]), border = '1px solid #ddd'))
-  
-  output$recent_team_wins <- DT::renderDataTable(datatable(team_Wins_Yesterday2, rownames = FALSE,
+                                                                lengthChange = FALSE, info = FALSE, paging = FALSE,
+                                                                columnDefs = list(list(targets = c(7, 8),  
+                                                                                       visible = FALSE)))) %>%
+                                         formatCurrency(7, currency = "$", interval = 3, mark = ",", digits = 0) %>%
+                                         formatPercentage(5, digits = 1) %>%
+                                         formatStyle(columns = 'PTS', 
+                                                     valueColumns = 'pts_color',
+                                                     backgroundColor = styleEqual(levels = c(1, 2, 3), 
+                                                                                  values = c('#9362DA', '#78B571', 'red'))) %>%
+                                         formatStyle(columns = 'TS%',
+                                                     valueColumns = 'ts_color',
+                                                     backgroundColor = styleEqual(levels = c(1, 2, 3), 
+                                                                                  values = c('#4BD33A', '#78B571', 'red'))))
+    
+                                       
+  output$recent_team_wins <- DT::renderDataTable(datatable(team_avg_ppg, rownames = FALSE,
                                                            options = list(searching = FALSE,
                                                                           pageLength = 15, 
                                                                           lengthChange = FALSE, info = FALSE,
-                                                                          paging = FALSE)) %>%
-                                                   formatStyle(c(1:dim(team_Wins_Yesterday2)[2]), border = '1px solid #ddd'))
+                                                                          paging = FALSE,
+                                                                          columnDefs = list(list(targets = c(5, 6),  
+                                                                                                 visible = FALSE)))) %>%
+                                                   formatStyle(columns = 'PTS', 
+                                                               valueColumns = 'pts_color',
+                                                               backgroundColor = styleEqual(levels = c(1, 2, 3), 
+                                                                                            values = c('#9362DA', '#4BD33A', '#B9564A'))) %>%
+                                                   formatStyle(columns = 'Opponent PTS',
+                                                               valueColumns = 'opp_pts_color',
+                                                               backgroundColor = styleEqual(levels = c(1, 2, 3), 
+                                                                                            values = c('#9362DA', '#B9564A', '#78B571'))))
   output$top20_plot_output <- renderPlotly({
       top20_plot(top_20pt_scorers) 
+  })
+  
+  output$schedule_plot_output <- renderPlotly({
+    if (input$select_choice == 'Future Strength of Schedule') {
+      schedule_plot(schedule_plot_df)
+    }
+    else {
+      advanced_sos_plot(advanced_standings)
+    }
   })
   
   selected_team_injury <- reactive({
@@ -102,7 +149,7 @@ server <- function(input, output, session) {
   
   output$team_plot_output <- renderPlot({
 
-    team_plot
+    team_ratings_plot(team_ratings_logo)
   })
   
   
@@ -121,13 +168,6 @@ server <- function(input, output, session) {
       filter(FullName == input$select_team)
   })
   
-  selected_team_bubble <- reactive({
-    gameLogs_bubble %>%
-      filter(Team == input$select_team) %>%
-      select(-Team) %>%
-      rename(Team = FullName, `Win Percentage` = WinPercentage) %>%
-      select(Team, Wins, Losses, `Active Injuries`, `Win Streak`, `Win Percentage`)
-  })
   
   selected_team_injury <- reactive({
     injury_data %>%
@@ -147,6 +187,16 @@ server <- function(input, output, session) {
   
   selected_team_bans <- reactive({
     team_wins %>%
+      filter(FullName == input$select_team)
+  })
+  
+  selected_team_rating_bans <- reactive({
+    rating_bans %>%
+      filter(FullName == input$select_team)
+  })
+  
+  selected_team_defensive_rating_bans <- reactive({
+    opponent_shooting_bans %>%
       filter(FullName == input$select_team)
   })
   
@@ -173,6 +223,20 @@ server <- function(input, output, session) {
   
   output$team_contract_value_output <- renderPlotly({
     team_contract_value_plot(team_contract_value)
+  })
+  
+  output$team_ratings_rank <- renderValueBox({
+    valueBox(
+      value = "Team Ratings", HTML(selected_team_rating_bans()$rating_text),
+      icon = icon("caret-up"), color = "purple"
+    )
+  })
+  
+  output$team_defensive_ratings_rank <- renderValueBox({
+    valueBox(
+      value = "Team Defensive Metrics", HTML(selected_team_defensive_rating_bans()$rating_text),
+      icon = icon("caret-up"), color = "purple"
+    )
   })
   
   output$bans_avg_pts <- renderValueBox({
