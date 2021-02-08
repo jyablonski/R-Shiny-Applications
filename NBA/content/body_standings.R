@@ -1,12 +1,26 @@
 body_standings <- dashboardBody(
-  fluidRow(textOutput('today_date')),
   fluidRow(
-    column(width = 6, "Western Conference", DT::dataTableOutput("west_standings_table")),
-    column(width = 6, "Eastern Conference", DT::dataTableOutput("east_standings_table"))
+    box(h4(paste0("Key Figures & Standings as of ", today)),
+        fluidRow(
+          column(
+            valueBoxOutput("bans_homeroad", width = 4),
+            valueBoxOutput("bans_avg_pts", width = 4),
+            valueBoxOutput("bans_date", width = 4),
+            width = 12,
+            style = "margin-left: -20px"
+          )
+        ),
+        div("Last updated: ", updated_date),
+        width = 12)),
+  fluidRow(
+    column(width = 6, h4("Western Conference"), DT::dataTableOutput("west_standings_table")),
+    column(width = 6, h4("Eastern Conference"), DT::dataTableOutput("east_standings_table"))
   ),
+  fluidRow(),
+  fluidRow(),
   fluidRow(
       box(
-        title = "20+ PPG Scorers",
+        title = "Player Scoring Efficiency",
         status = "success",
         solidHeader = TRUE,
         collapsible = FALSE,
@@ -20,24 +34,24 @@ body_standings <- dashboardBody(
         collapsible = FALSE,
         width = 6,
         plotOutput("team_plot_output", height = "600px")
-      )),
+      )
+  ),
   fluidRow(
     box(
-      title = "Contract Value Analysis",
+      title = "Player Contract Value Analysis",
       status = "success",
       solidHeader = TRUE,
       collapsible = FALSE,
       width = 6,
-      plotlyOutput("contract_plot_output", height = "600px")
-      ),
+      plotlyOutput("contract_value_output", height = "600px")
+    ),
     box(
-      title = "Three Point Shooting Changes after the Season Reboot",
+      title = "Team Contract Value Analysis",
       status = "success",
       solidHeader = TRUE,
       collapsible = FALSE,
       width = 6,
-      plotlyOutput("three_point_shooting_output", height = "600px")
+      plotlyOutput("team_contract_value_output", height = "600px")
     )
-
   )
 )
