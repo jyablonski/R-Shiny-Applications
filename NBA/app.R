@@ -19,8 +19,8 @@ ui <- fluidPage(
   tags$style(type = "text/css", ".navbar {margin-bottom: 0px; padding-left: 15px;"),
   tags$style(type = "text/css", ".content {padding: 0px;}"),
   tags$style(type = "text/css", ".row {margin-left: 0px; margin-right: 0px;"),
-  tags$style(HTML(".col-sm-12 { padding: 5px; margin-bottom: -15px; }")),
-  tags$style(HTML(".col-sm-6 { padding: 5px; margin-bottom: -15px; }")),
+  tags$style(HTML(".col-sm-12 { padding: 5px; margin-bottom: 0px; }")),
+  tags$style(HTML(".col-sm-6 { padding: 5px; margin-bottom: 0px; }")),
   navbarPage(' 2020-2021 NBA Season Dashboard',
              tabPanel("Overview", dashboardPage(title = "Overview",
                                                 header = dashboardHeader(disable = TRUE),
@@ -136,6 +136,9 @@ server <- function(input, output, session) {
   output$schedule_plot_output <- renderPlotly({
     if (input$select_choice == 'Future Strength of Schedule') {
       schedule_plot(schedule_plot_df)
+    }
+    else if (input$select_choice == 'Vegas Preseason Over/Under Odds') {
+      vegas_plot(over_under2)
     }
     else {
       advanced_sos_plot(advanced_standings)
@@ -266,4 +269,3 @@ server <- function(input, output, session) {
 
 # Run the App
 shinyApp(ui, server)
-
