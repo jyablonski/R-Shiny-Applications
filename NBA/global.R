@@ -15,20 +15,21 @@ library(DT)
 library(anytime)
 library(runner)
 library(fs)
-library(googlesheets4)
-library(googledrive)
 library(scales)
 library(jsonlite)
 library(httr)
 library(stringi)
+library(ggtext)
+library(bslib)
+library(RMySQL)
 
 Sys.setenv (TZ="America/Los_Angeles")
-# designate project-specific cache
-# options(gargle_oauth_cache = ".secrets")
-# gs4_auth(path = '.secrets', email = 'jyablonski9@gmail.com')
-# drive_auth(cache = ".secrets", email = "jyablonski9@gmail.com")
-# gs4_auth_configure(api_key = "####################")
-gs4_deauth()
+#### AWS CONNECTION #####
+
+aws_connect <- dbConnect(drv = RMySQL::MySQL(), dbname = amazon_db(),
+                         host = amazon_host(),
+                         port = amazon_port(),
+                         user = amazon_admin(), password = amazon_pw())
 
 today <- Sys.Date()
 todayDate <- Sys.Date()
@@ -47,11 +48,10 @@ theme_jacob <- function () {
     )
 }
 
+# data retrieval functions
 get_gamelogs_data <- function(){
   if (isSeasonActive == TRUE & as.double(Sys.time() - file_info('data/gameLogs.csv')$change_time, units = 'hours') > 8.0){
-    gameLogs <- range_speedread(
-      ss = 'https://docs.google.com/spreadsheets/d/1MwPs5VAfAukhCyIoPxxZs5weQbj1RGTvcsaAyzFp0Lo/edit#gid=1232535158',
-      sheet = 1)
+    gameLogs <- dbReadTable(aws_connect, "aws_gamelogs")
     write_csv(gameLogs, 'data/gameLogs.csv')
     return(gameLogs)
   }
@@ -63,9 +63,7 @@ get_gamelogs_data <- function(){
 
 get_injuries_data <- function(){
   if (isSeasonActive == TRUE & as.double(Sys.time() - file_info('data/injuryData.csv')$change_time, units = 'hours') > 8.0){
-    injuries <- range_speedread(
-      ss = 'https://docs.google.com/spreadsheets/d/1MwPs5VAfAukhCyIoPxxZs5weQbj1RGTvcsaAyzFp0Lo/edit#gid=1232535158',
-      sheet = 2)
+    injuries <- dbReadTable(aws_connect, "aws_injuries")
     write_csv(injuries, 'data/injuryData.csv')
     return(injuries)
   }
@@ -75,25 +73,23 @@ get_injuries_data <- function(){
   }
 }
 
-get_playbyplay_data <- function(){
-  if (isSeasonActive == TRUE & as.double(Sys.time() - file_info('data/playbyplay_df.csv')$change_time, units = 'hours') > 8.0){
-    playbyplay_df <- range_speedread(
-      ss = 'https://docs.google.com/spreadsheets/d/1MwPs5VAfAukhCyIoPxxZs5weQbj1RGTvcsaAyzFp0Lo/edit#gid=1232535158',
-      sheet = 5)
-    write_csv(playbyplay_df, 'data/playbyplay_df.csv')
-    return(playbyplay_df)
-  }
-  else {
-    df <- read_csv('data/playbyplay_df.csv')
-    return(df)
-  }
-}
+# get_playbyplay_data <- function(){
+#   if (isSeasonActive == TRUE & as.double(Sys.time() - file_info('data/playbyplay_df.csv')$change_time, units = 'hours') > 8.0){
+#     playbyplay_df <- range_speedread(
+#       ss = 'https://docs.google.com/spreadsheets/d/1MwPs5VAfAukhCyIoPxxZs5weQbj1RGTvcsaAyzFp0Lo/edit#gid=1232535158',
+#       sheet = 5)
+#     write_csv(playbyplay_df, 'data/playbyplay_df.csv')
+#     return(playbyplay_df)
+#   }
+#   else {
+#     df <- read_csv('data/playbyplay_df.csv')
+#     return(df)
+#   }
+# }
 
 get_team_opponent_shooting_data <- function(){
   if (isSeasonActive == TRUE & as.double(Sys.time() - file_info('data/opponent_shooting.csv')$change_time, units = 'hours') > 8.0){
-    opponent_shooting <- range_speedread(
-      ss = 'https://docs.google.com/spreadsheets/d/1MwPs5VAfAukhCyIoPxxZs5weQbj1RGTvcsaAyzFp0Lo/edit#gid=1232535158',
-      sheet = 4)
+    opponent_shooting <- dbReadTable(aws_connect, "aws_opponent_shooting")
     write_csv(opponent_shooting, 'data/opponent_shooting.csv')
     return(opponent_shooting)
   }
@@ -105,9 +101,7 @@ get_team_opponent_shooting_data <- function(){
 
 get_odds <- function(){
   if (isSeasonActive == TRUE & as.double(Sys.time() - file_info('data/odds.csv')$change_time, units = 'hours') > 8.0){
-    odds_df <- range_speedread(
-      ss = 'https://docs.google.com/spreadsheets/d/1MwPs5VAfAukhCyIoPxxZs5weQbj1RGTvcsaAyzFp0Lo/edit#gid=1232535158',
-      sheet = 6)
+    odds_df <- dbReadTable(aws_connect, "aws_odds_df")
     write_csv(odds_df, 'data/odds.csv')
     return(odds_df)
   }
@@ -288,20 +282,31 @@ odds_cleanup <- function(df){
     select(team2, team2_pts, date)
   
   odds_df2 <- df %>%
+    mutate(team1 = replace(team1, team1 == 'Portland TrailBlazers', 'Portland Trail Blazers'),
+           team2 = replace(team2, team2 == 'Portland TrailBlazers', 'Portland Trail Blazers')) %>%
     left_join(game_ids %>% select(team1, date, Outcome, team1_pts)) %>%
     left_join(game_ids2 %>% select(team2, team2_pts, date)) %>%
     rename(team1_outcome = Outcome) %>%
     mutate(team2_outcome = case_when(team1_outcome == 'W' ~ 'L',
                                      team1_outcome == 'L' ~ 'W',
                                      TRUE ~ 'HELP'),
-           team2_outcome = na_if(team2_outcome, 'HELP'),
-           team1 = replace(team1, team1 == 'Portland TrailBlazers', 'Portland Trail Blazers'),
-           team2 = replace(team2, team2 == 'Portland TrailBlazers', 'Portland Trail Blazers')) %>%
+           team2_outcome = na_if(team2_outcome, 'HELP')) %>%
     select(team1, team1_outcome, team1_moneyline, team1_spread, team1_pts, team2, team2_outcome,
            team2_moneyline, team2_spread, team2_pts, pts_bet, date) %>%
     mutate(tot_pts = team1_pts + team2_pts)
   
   return(odds_df2)
+}
+
+get_ord_numbers <- function(df){
+  new_df <- case_when(df %in% c(11, 12, 13) ~ "th",
+                      df %% 10 == 1 ~ 'st',
+                      df %% 10 == 2 ~ 'nd',
+                      df %% 10 == 3 ~ 'rd',
+                      TRUE ~ 'th')
+  new_df2 <- paste0(df, new_df)
+  return(new_df2)
+  
 }
 
 
@@ -311,14 +316,15 @@ injury_data <- get_injuries_data()
 gameLogs <- get_gamelogs_data()
 dataBREFTeamJoined <- read_csv('data/dataBREFTeamJoined.csv')
 team_ratings <- get_advanced_stats()
-schedule <- get_Schedule()
+schedule <- read_csv('data/schedule.csv')
 transactions <- get_transactions()
-contracts <- read_csv('data/contracts1.csv')
+contracts <- read_csv('data/contracts.csv')
 # pbp_data <- get_playbyplay_data()
 last_season_wins <- read_csv('data/lastseasonwins.csv')
 over_under <- read_csv('data/nba_odds.csv')
 opponent_shooting <- get_team_opponent_shooting_data()
-odds_df <- get_odds()
+odds_df <- get_odds() %>%
+  mutate(date = as.Date(date))
 
 # pbp_data_new <- get_clean_foul_data(pbp_data)
 
@@ -355,6 +361,7 @@ team_gp_df <- gameLogs %>%
   ungroup()
 
 gameLogs_Two <- gameLogs %>%
+  select(-isB2BFirst, -isB2B, -isB2BSecond, -Season) %>%
   group_by(Player) %>%
   mutate(game_ts_percent = PTS / (2 * (FGA + (0.44 * FTA))),
          game_ts_percent = round(game_ts_percent, 3),
@@ -396,7 +403,7 @@ player_teams <- gameLogs_Two %>%
   select(-Date) %>%
   rename(new_team = Team)
 
-rm(gameLogs, team_gp_df, salary_Merge, ts_percent)
+rm(gameLogs, team_gp_df, salary_Merge)
 
 gameLogs_Yesterday <- gameLogs_Two %>%
   filter(Date == max(Date))
@@ -420,11 +427,11 @@ top_15_yesterday <- gameLogs_Yesterday %>%
   mutate(ppg_difference = PTS - avg_ppg,
          ts_difference = `TS%` - season_ts_percent,
          pts_color = case_when(PTS == season_high ~ 1,
-                               PTS != season_high & ppg_difference >= 10 ~ 2,
-                               ppg_difference < -10 ~ 3,
+                               PTS != season_high & ppg_difference >= 15 ~ 2,
+                               ppg_difference <= -15 ~ 3,
                                TRUE ~ 0),
-         ts_color = case_when(ts_difference >= 0.20 ~ 1,
-                              ts_difference < 0.20 & ts_difference >= 0.1 ~ 2,
+         ts_color = case_when(ts_difference >= 0.25 ~ 1,
+                              ts_difference < 0.25 & ts_difference >= 0.15 ~ 2,
                               `TS%` <= 0.40 ~ 3,
                               TRUE ~ 0)) %>%
   select(Rank:Salary, pts_color:ts_color)
@@ -481,12 +488,6 @@ home_road_winpercent <- gameLogs_Two %>%
   rename('Road Wins' = Wins_Away, 'Home Wins' = Wins_Home, 'Win Percentage Road' = 'Win Percentage_Away',
          'Win Percentage Home' = 'Win Percentage_Home')
 
-back_to_backs <- gameLogs_Two %>% # get team win percentage on these games.  
-  group_by(Team, isB2BSecond) %>%
-  distinct(GameID) %>%
-  filter(isB2BSecond == TRUE) %>%
-  summarise(n = n())
-
 rm(team_Wins_Yesterday)
 
 win_streak <- gameLogs_Two %>%
@@ -534,6 +535,8 @@ conferences <- dataBREFTeamJoined %>%
   mutate(Team = replace(Team, Team == 'PHO', 'PHX')) %>%
   mutate(Team = replace(Team, Team == 'CHO', 'CHA'))
 
+rm(dataBREFTeamJoined)
+
 last_10_wins <- gameLogs_Two %>%
   select(Team, GameID, Date, Outcome) %>%
   distinct() %>%
@@ -544,7 +547,9 @@ last_10_wins <- gameLogs_Two %>%
   pivot_wider(names_from = Outcome,
               values_from = n) %>%
   ungroup() %>%
-  mutate(`Last 10 Games` = paste0(W, '-', L)) %>%
+  mutate(L = replace_na(L, 0),
+         W = replace_na(W, 0),
+         `Last 10 Games` = paste0(W, '-', L)) %>%
   select(Team, `Last 10 Games`) %>%
   rename(Team1 = Team) %>%
   left_join(acronyms) %>%
@@ -573,9 +578,9 @@ west_standings <- team_wins %>%
   left_join(last_10_wins)
 
 
-team_points_histogram <- gameLogs_Two %>%
-  group_by(Team, GameID, Outcome, Opponent) %>%
-  summarise(Total_PTS = sum(PTS))
+# team_points_histogram <- gameLogs_Two %>%
+#   group_by(Team, GameID, Outcome, Opponent) %>%
+#   summarise(Total_PTS = sum(PTS))
 
 top_20pt_scorers <- gameLogs_Two %>%
   filter(Type == 'Regular Season') %>%
@@ -670,7 +675,8 @@ top20_plot <- function(df){
     theme(plot.title = element_text(hjust = 0.5), legend.position = 'top')
   
   ggplotly(p, tooltip = c('text')) %>%
-    layout(legend = list(orientation = "h", x = 0.35))
+    layout(legend = list(orientation = "h", x = 0.35),
+           hoverlabel = list(bgcolor = "white"))
   
 }
 
@@ -692,7 +698,8 @@ team_ppg_plot <- function(df){
     theme(plot.title = element_text(hjust = 0.5), legend.position = 'top')
   
   ggplotly(p, tooltip = c('text')) %>%
-    layout(legend = list(orientation = "h", x = 0.35))
+    layout(legend = list(orientation = "h", x = 0.35),
+           hoverlabel = list(bgcolor = "white"))
   
 }
 
@@ -769,7 +776,8 @@ mov_plot <- function(df){
     theme_jacob()
   
   
-  ggplotly(p, tooltip = c('text'))
+  ggplotly(p, tooltip = c('text')) %>%
+   layout(hoverlabel = list(bgcolor = "white"))
   
 }
 
@@ -826,8 +834,10 @@ schedule_main <- schedule %>%
          team2_text = case_when(Date == todayDate ~ paste0(`Team 2`, " (", team2_moneyline, ")"),
                                 TRUE ~ `Team 2`)) %>%
   select(Date, `Day of Week`, `Start Time (EST)`, `team1_text`, `Vs`, team2_text, `Average Rank of Teams`) %>%
-  rename(`Team 1` = team1_text, `Team 2` = team2_text) %>%
+  rename(`Home Team` = team1_text, `Road Team` = team2_text) %>%
   distinct()
+
+rm(games_tonight)
 
 opponent_prac <- schedule %>%
   select(date_game, game_start_time, visitor_team_name, visitor_pts, home_team_name) %>%
@@ -882,24 +892,38 @@ schedule_plot_df <- schedule %>%
   mutate(differential = avg_opp_rank - Rank,
          Team = fct_reorder(Team, avg_opp_rank),
          differential = round(differential, 1),
-         avg_opp_rank = round(avg_opp_rank, 1))
+         avg_opp_rank = round(avg_opp_rank, 1)) %>%
+  arrange(avg_opp_rank) %>%
+  mutate(remaining_sched_rank = row_number(),
+         new_seed = get_ord_numbers(remaining_sched_rank),
+         legend = case_when(differential > 0 ~ 'Easier Schedule',
+                            TRUE ~ 'Harder Schedule'),
+         Rank = get_ord_numbers(Rank)) %>%
+  select(-remaining_sched_rank)
 
 rm(team_rank, opponent_rank, opponent_prac, schedule)
 
 schedule_plot <- function(df){
   
   p <- df %>%
-    ggplot(aes(avg_opp_rank, Team, fill = differential > 0)) +
-    geom_col(aes(text = paste0('Team: ', Team, '<br>',
-                               'Team Rank: ', Rank, '<br>',
-                               'Average Opponent Rank: ', avg_opp_rank))) +
+    ggplot(aes(avg_opp_rank, Team, fill = legend)) +
+    geom_col(aes(text = paste0(Team, '<br>',
+                                                'Remaining Schedule Difficulty Rank: ', new_seed, '<br>',
+                                                'Team Rank (as of Today): ', Rank, '<br>',
+                                                'Average Opponent Rank in upcoming games: ', avg_opp_rank))) +
+    # annotate(geom = "text", label = "<span style='color: #F8766D;'>  Harder Upcoming Schedule</span>",
+    #          x = max(df$avg_opp_rank) * .93, y = 4) +
+    # annotate(geom = "text", label = "<span style='color: #00BFC4;'> Easier Upcoming \n Schedule</span>",
+    #          x = max(df$avg_opp_rank) * .98, y = 24) +
+    scale_fill_manual(values = c('#00BFC4', '#F8766D')) +
     labs(y = NULL,
          x = 'Average Opponent Rank',
-         title = 'Strength of Schedule Breakdown for the remaining month') +
-    theme_jacob() +
-    theme(legend.position='none')
+         title = 'Strength of Schedule Breakdown for the remaining Season',
+         fill = 'Legend') +
+    theme_jacob()
   
-  ggplotly(p, tooltip = c('text'))
+  ggplotly(p, tooltip = c('text')) %>%
+    layout(hoverlabel = list(bgcolor = "white"))
 }
 
 regular_valuebox_function <- function(df){
@@ -957,7 +981,8 @@ game_types_plot <- function(df){
   
   
   ggplotly(p, tooltip = c('text')) %>%
-    layout(legend = list(orientation = "h", x = 0.35, y = 1.03))
+    layout(legend = list(orientation = "h", x = 0.35, y = 1.03),
+           hoverlabel = list(bgcolor = "white"))
 }
 
 contract_df <- gameLogs_Two %>%
@@ -1033,7 +1058,8 @@ value_plot <- function(df){
          fill = 'Color Legend') +
     scale_fill_manual(values=c("red", "green", "grey70", 'purple'))
   
-  ggplotly(p, tooltip = c('text'))
+  ggplotly(p, tooltip = c('text')) %>%
+    layout(hoverlabel = list(bgcolor = "white"))
 }
 
 league_avg_ppg <- gameLogs_Two %>%
@@ -1129,7 +1155,8 @@ team_contract_value_plot <- function(df){
     theme_jacob()
   
   ggplotly(p, tooltip = c('text')) %>%
-    layout(legend = list(orientation = "h", x = 0.35))
+    layout(legend = list(orientation = "h", x = 0.35),
+           hoverlabel = list(bgcolor = "white"))
 }
 
 rating_bans <- team_ratings %>%
@@ -1140,24 +1167,9 @@ rating_bans <- team_ratings %>%
   mutate(ORTG_rank = row_number()) %>%
   arrange(DRTG) %>%
   mutate(DRTG_rank = row_number(),
-         suffix_nrtg = case_when(NRTG_rank %in% c(11, 12, 13) ~ "th",
-                            NRTG_rank %% 10 == 1 ~ 'st',
-                            NRTG_rank %% 10 == 2 ~ 'nd',
-                            NRTG_rank %% 10 == 3 ~ 'rd',
-                            TRUE ~ 'th'),
-         suffix_drtg = case_when(DRTG_rank %in% c(11, 12, 13) ~ "th",
-                                 DRTG_rank %% 10 == 1 ~ 'st',
-                                 DRTG_rank %% 10 == 2 ~ 'nd',
-                                 DRTG_rank %% 10 == 3 ~ 'rd',
-                                 TRUE ~ 'th'),
-         suffix_ortg = case_when(ORTG_rank %in% c(11, 12, 13) ~ "th",
-                                 ORTG_rank %% 10 == 1 ~ 'st',
-                                 ORTG_rank %% 10 == 2 ~ 'nd',
-                                 ORTG_rank %% 10 == 3 ~ 'rd',
-                                 TRUE ~ 'th'),
-         NRTG_real_text = paste0(NRTG_rank, suffix_nrtg),
-         DRTG_real_text = paste0(DRTG_rank, suffix_drtg),
-         ORTG_real_text = paste0(ORTG_rank, suffix_ortg),
+         NRTG_real_text = get_ord_numbers(NRTG_rank),
+         DRTG_real_text = get_ord_numbers(DRTG_rank),
+         ORTG_real_text = get_ord_numbers(ORTG_rank),
          rating_text = paste0('Offensive Rating: ', ORTG, ' (', ORTG_real_text, ')', '<br>',
                               'Defensive Rating: ', DRTG, ' (', DRTG_real_text, ')', '<br>',
                               'Net Rating: ', NRTG, ' (', NRTG_real_text, ')'))
@@ -1165,35 +1177,45 @@ rating_bans <- team_ratings %>%
 
 rm(team_ratings, contracts, GP)
 
-over_under <- over_under %>%
+
+# you could look at SOS currently vs future SOS and factor that in
+# problem is we dont have future schedule yet.  
+over_under2 <- over_under %>%
   rename(FullName = Team) %>%
   left_join(team_wins %>% select(FullName, WinPercentage, projected_wins, projected_losses)) %>%
   left_join(full_team_names) %>%
-  mutate(over = case_when(WinPercentage >= expected_win_pct ~ 'Over',
+  mutate(new_expected_winpct = round((over_under_wins / 72), 3),
+         over = case_when(WinPercentage >= new_expected_winpct ~ 'Over',
                            TRUE ~ 'Under'),
-         wins_difference = projected_wins - wins_needed,
+         wins_difference = projected_wins - over_under_wins,
          Team = fct_reorder(Team, wins_difference),
-         wins_odds_pre = 72 - wins_needed)
+         wins_odds_pre = 72 - over_under_wins)
+
+rm(over_under)
 
 vegas_plot <- function(df) {
   p <- df %>%
     ggplot(aes(wins_difference, Team, fill = over)) +
     geom_col(aes(text = paste0(FullName, '<br>',
                                'Current W/L Projection: ', projected_wins, '-', projected_losses, '<br>',
-                               "Vegas' Preaseason Projection: ", wins_needed, '-', wins_odds_pre, '<br>',
+                               "Vegas' Preseason Over/Under for Wins: ", over_under_wins, '<br>',
                                'Wins Differential: ', wins_difference))) +
     scale_fill_manual(values = c('#00BFC4', '#F8766D')) +
+    annotate(geom = "text", label = "<span style='color: #00BFC4;'>  Exceeding Expectations</span>",
+             x = min(df$wins_difference) * .5, y = 25, size = 4.5) +
+    annotate(geom = "text", label = "<span style='color: #F8766D;'> Underperforming</span>",
+             x = max(df$wins_difference) * .4, y = 5, size = 4.5) +
     labs(x = 'Predicted Wins Differential',
          y = NULL,
-         title = 'Vegas Over / Under Preseason Odds') +
+         title = paste0('Vegas Preseason Over / Under Odds Tracker as of ', today)) +
     theme_jacob() +
-    theme(legend.position = 'top', plot.title = element_text(hjust = 0.5))
+    theme(legend.position = 'none', plot.title = element_text(hjust = 0.5))
   
   ggplotly(p, tooltip = c('text')) %>%
-    layout(legend = list(orientation = "h", x = 0.5, y = 1))
+    layout(hoverlabel = list(bgcolor = "white"))
 }
 
-# vegas_plot(over_under)
+# vegas_plot(over_under2)
 
 days_off <- gameLogs_Two %>%
   select(DaysRest, Outcome, Location, GameID, Date) %>%
@@ -1220,49 +1242,27 @@ max_player_date <- gameLogs_Two %>%
 
 opponent_shooting_bans <- opponent_shooting %>%
   select(nameTeam, pctFGOpponent, pctFG3Opponent, ftaOpponent, pctFGOpponentRank, pctFG3OpponentRank, ftaOpponentRank) %>%
-  mutate(suffix_pctfg = case_when(pctFGOpponentRank %in% c(11, 12, 13) ~ "th",
-                                  pctFGOpponentRank %% 10 == 1 ~ 'st',
-                                  pctFGOpponentRank %% 10 == 2 ~ 'nd',
-                                  pctFGOpponentRank %% 10 == 3 ~ 'rd',
-                                 TRUE ~ 'th'),
-         suffix_pct3fg = case_when(pctFG3OpponentRank %in% c(11, 12, 13) ~ "th",
-                                   pctFG3OpponentRank %% 10 == 1 ~ 'st',
-                                   pctFG3OpponentRank %% 10 == 2 ~ 'nd',
-                                   pctFG3OpponentRank %% 10 == 3 ~ 'rd',
-                                 TRUE ~ 'th'),
-         suffix_fta = case_when(ftaOpponentRank %in% c(11, 12, 13) ~ "th",
-                                ftaOpponentRank %% 10 == 1 ~ 'st',
-                                ftaOpponentRank %% 10 == 2 ~ 'nd',
-                                ftaOpponentRank %% 10 == 3 ~ 'rd',
-                                 TRUE ~ 'th'),
-         pctFG_real_text = paste0(pctFGOpponentRank, suffix_pctfg),
-         pct3FG_real_text = paste0(pctFG3OpponentRank, suffix_pct3fg),
-         FTA_real_text = paste0(ftaOpponentRank, suffix_fta),
+  mutate(pctFG_real_text = get_ord_numbers(pctFGOpponentRank),
+         pct3FG_real_text = get_ord_numbers(pctFG3OpponentRank),
+         FTA_real_text = get_ord_numbers(ftaOpponentRank),
          rating_text = paste0('Opponent FG%: ', pctFGOpponent * 100, '%', ' (', pctFG_real_text, ')', '<br>',
                               'Opponent 3P%: ', pctFG3Opponent * 100, '%', ' (', pct3FG_real_text, ')', '<br>',
                               'Opponent FTA/g: ', ftaOpponent, ' (', FTA_real_text, ')')) %>%
-  rename(FullName = nameTeam)
+  rename(FullName = nameTeam) %>%
+  mutate(FullName = replace(FullName, FullName == 'LA Clippers', 'Los Angeles Clippers'))
 
 west_seed <- west_standings %>%
   select(Seed, Team) %>%
   mutate(conference = 'West',
-         suffix_seed = case_when(Seed %in% c(11, 12, 13) ~ "th",
-                                 Seed %% 10 == 1 ~ 'st',
-                                 Seed %% 10 == 2 ~ 'nd',
-                                 Seed %% 10 == 3 ~ 'rd',
-                                TRUE ~ 'th'),
-         new_seed = paste0(Seed, suffix_seed, " in West")) %>%
+         suffix_seed = get_ord_numbers(Seed),
+         new_seed = paste0(suffix_seed, " in West")) %>%
   select(Team, new_seed)
 
 east_seed <- east_standings %>%
   select(Seed, Team) %>%
   mutate(conference = 'East',
-         suffix_seed = case_when(Seed %in% c(11, 12, 13) ~ "th",
-                                 Seed %% 10 == 1 ~ 'st',
-                                 Seed %% 10 == 2 ~ 'nd',
-                                 Seed %% 10 == 3 ~ 'rd',
-                                 TRUE ~ 'th'),
-         new_seed = paste0(Seed, suffix_seed, " in East")) %>%
+         suffix_seed = get_ord_numbers(Seed),
+         new_seed = paste0(suffix_seed, " in East")) %>%
   select(Team, new_seed) %>%
   rbind(west_seed) %>%
   rename(FullName = Team)
@@ -1341,28 +1341,33 @@ rm(homeroad_standings, team_opponents, opp_winpercent)
 
 advanced_sos_plot <- function(df){
   p <- df %>%
-  ggplot(aes(prop_gp_below500, Team, fill = avg_opp_winpercent >= 0.5)) +
-  geom_col(aes(text = paste0(Team, '<br>',
-                             'Team Win %: ', round(WinPercentage * 100, 1), '%', '<br>',
-                             'Average Opponent Win %: ', avg_opp_winpercent * 100, '%', '<br>', 
-                             '<br>',
-                             'Record vs Below .500 Teams: ', `Below .500 Record`, '<br>',
-                             'Record vs Above .500 Teams: ', `Above .500 Record`, '<br>',
-                             '<br>',
-                             'Home Record: ', home_record, '<br>',
-                             'Road Record: ', road_record, '<br>',
-                             '<br>',
-                             round(prop_gp_below500 * 100, 1), '% of games played have been vs Below .500 Teams', '<br>',
-                             round(prop_gp_above500 * 100, 1), '% of games played have been vs Above .500 Teams'))) +
-  scale_fill_manual(values = c('#00BFC4', '#F8766D')) +
+    ggplot(aes(prop_gp_below500, Team, fill = avg_opp_winpercent >= 0.5)) +
+    geom_col(aes(text = paste0(Team, '<br>',
+                               'Team Win %: ', round(WinPercentage * 100, 1), '%', '<br>',
+                               'Average Opponent Win %: ', avg_opp_winpercent * 100, '%', '<br>', 
+                               '<br>',
+                               'Record vs Below .500 Teams: ', `Below .500 Record`, '<br>',
+                               'Record vs Above .500 Teams: ', `Above .500 Record`, '<br>',
+                               '<br>',
+                               'Home Record: ', home_record, '<br>',
+                               'Road Record: ', road_record, '<br>',
+                               '<br>',
+                               round(prop_gp_below500 * 100, 1), '% of games played have been vs Below .500 Teams', '<br>',
+                               round(prop_gp_above500 * 100, 1), '% of games played have been vs Above .500 Teams'))) +
+    scale_fill_manual(values = c('#00BFC4', '#F8766D')) +
     scale_x_continuous(labels = percent_format()) +
-  labs(x = '% of Games vs Below .500 Teams',
-       y = NULL,
-       title = paste0('NBA Teams Strength of Schedule as of ', today)) +
-  theme_jacob() +
-  theme(legend.position = 'none')
+    annotate(geom = "text", label = "<span style='color: #F8766D;'>  Faced Harder Competition</span>",
+             x = max(df$prop_gp_below500) * .93, y = 4) +
+    annotate(geom = "text", label = "<span style='color: #00BFC4;'> Faced Easier \n Competition</span>",
+             x = max(df$prop_gp_below500) * .98, y = 24) +
+    labs(x = '% of Games vs Below .500 Teams',
+         y = NULL,
+         title = paste0('NBA Teams Strength of Schedule as of ', today)) +
+    theme_jacob() +
+    theme(legend.position = 'none')
   
-  ggplotly(p, tooltip = c('text'))
+  ggplotly(p, tooltip = c('text')) %>%
+    layout(hoverlabel = list(bgcolor = "white"))
 }
 
 team_opp_ppg <- gameLogs_Two %>%
@@ -1389,15 +1394,16 @@ team_avg_ppg <- gameLogs_Two %>%
                              TRUE ~ 'L'),
          max_season_pts = max(pts),
          max_opp_season_pts = max(opp_pts)) %>%
-  filter(Date == yesterday) %>%
+  ungroup() %>%
+  filter(Date == max(Date)) %>%
   arrange(desc(GameID)) %>%
   mutate(pts_color = case_when(pts == max_season_pts ~ 1, # best all season
                                pts != max_season_pts & pts_difference >= 15 ~ 2, # pretty good
-                               pts_difference <= -10 ~ 3, # very bad
+                               pts_difference <= -15 ~ 3, # very bad
                                TRUE ~ 0),
          opp_pts_color = case_when(opp_pts == max_opp_season_pts ~ 1, # worst all season
-                                   opp_pts != max_opp_season_pts & opp_pts_difference >= 10 ~ 2, # pretty bad
-                                   opp_pts_difference <= -10 ~ 3, # very good
+                                   opp_pts != max_opp_season_pts & opp_pts_difference >= 15 ~ 2, # pretty bad
+                                   opp_pts_difference <= -15 ~ 3, # very good
                                    TRUE ~ 0)) %>%
   select(Team, Outcome, pts, Opp, opp_pts, pts_color, opp_pts_color) %>%
   rename(PTS = pts, Opponent = Opp, `Opponent PTS` = opp_pts)
