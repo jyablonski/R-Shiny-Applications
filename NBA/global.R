@@ -75,9 +75,7 @@ get_injuries_data <- function(){
 
 # get_playbyplay_data <- function(){
 #   if (isSeasonActive == TRUE & as.double(Sys.time() - file_info('data/playbyplay_df.csv')$change_time, units = 'hours') > 8.0){
-#     playbyplay_df <- range_speedread(
-#       ss = 'https://docs.google.com/spreadsheets/d/1MwPs5VAfAukhCyIoPxxZs5weQbj1RGTvcsaAyzFp0Lo/edit#gid=1232535158',
-#       sheet = 5)
+#     playbyplay_df <- dbReadTable(aws_connect, "aws_pbp")
 #     write_csv(playbyplay_df, 'data/playbyplay_df.csv')
 #     return(playbyplay_df)
 #   }
