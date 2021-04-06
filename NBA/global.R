@@ -28,6 +28,11 @@ library(shinythemes)
 Sys.setenv (TZ="America/Los_Angeles")
 #### AWS CONNECTION #####
 
+aws_connect <- dbConnect(drv = RMySQL::MySQL(), dbname = #######aws####,
+                         host = ####aws####,
+                         port = 3306,
+                         user = ####aws### , password = #####aws####)
+
 
 today <- Sys.Date()
 todayDate <- Sys.Date()
