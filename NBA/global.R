@@ -22,14 +22,16 @@ library(stringi)
 library(ggtext)
 library(bslib)
 library(RMySQL)
+library(gt)
+library(shinythemes)
 
 Sys.setenv (TZ="America/Los_Angeles")
 #### AWS CONNECTION #####
 
-aws_connect <- dbConnect(drv = RMySQL::MySQL(), dbname = amazon_db(),
-                         host = amazon_host(),
-                         port = amazon_port(),
-                         user = amazon_admin(), password = amazon_pw())
+aws_connect <- dbConnect(drv = RMySQL::MySQL(), dbname = 'aws_database',
+                         host = 'nbadatabase.cpftqqymhmyh.us-west-1.rds.amazonaws.com',
+                         port = 3306,
+                         user = 'admin', password = 'Bugger4321!')
 
 today <- Sys.Date()
 todayDate <- Sys.Date()
@@ -39,13 +41,28 @@ today <-  format(today, format = "%B %d, %Y")
 updated_date <- strftime(Sys.time(), format = "%B %d, %Y - %I:%M %p %Z")
 
 # custom theme
-theme_jacob <- function () { 
-  theme_minimal(base_size=10, base_family="Gill Sans MT") %+replace% 
-    theme(
-      panel.grid.minor = element_blank(),
-      panel.background = element_rect(fill = "floralwhite"),
-      plot.background = element_rect(fill = 'floralwhite', color = 'floralwhite')
-    )
+theme_jacob <- function(..., base_size = 11) {
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major =  element_line(color = "#d0d0d0"),
+        panel.background = element_rect(fill = "#f0f0f0", color = NA),
+        plot.background = element_rect(fill = "#f0f0f0", color = NA),
+        legend.background = element_rect(fill = '#f0f0f0', color = NA),
+        panel.border = element_blank(),
+        strip.background = element_blank(),
+        plot.margin = margin(0.5, 1, 0.5, 1, unit = "cm"),
+        axis.ticks = element_blank(),
+        text = element_text(family = "Gill Sans MT", size = base_size),
+        axis.text = element_text(face = "bold", color = "grey40", size = base_size),
+        axis.title = element_text(face = "bold", size = rel(1.2)),
+        axis.title.x = element_text(margin = margin(0.5, 0, 0, 0, unit = "cm")),
+        axis.title.y = element_text(margin = margin(0, 0.5, 0, 0, unit = "cm"), angle = 90),
+        plot.title = element_text(face = "bold", size = rel(1.05), hjust = 0.5),
+        plot.title.position = "plot",
+        plot.subtitle = element_text(size = 11, margin = margin(0.2, 0, 1, 0, unit = "cm"), hjust = 0.5),
+        plot.caption = element_text(size = 10, margin = margin(1, 0, 0, 0, unit = "cm"), hjust = 1),
+        strip.text = element_text(size = rel(1.05), face = "bold"),
+        ...
+  )
 }
 
 # data retrieval functions
@@ -75,7 +92,9 @@ get_injuries_data <- function(){
 
 # get_playbyplay_data <- function(){
 #   if (isSeasonActive == TRUE & as.double(Sys.time() - file_info('data/playbyplay_df.csv')$change_time, units = 'hours') > 8.0){
-#     playbyplay_df <- dbReadTable(aws_connect, "aws_pbp")
+#     playbyplay_df <- range_speedread(
+#       ss = 'https://docs.google.com/spreadsheets/d/1MwPs5VAfAukhCyIoPxxZs5weQbj1RGTvcsaAyzFp0Lo/edit#gid=1232535158',
+#       sheet = 5)
 #     write_csv(playbyplay_df, 'data/playbyplay_df.csv')
 #     return(playbyplay_df)
 #   }
@@ -351,7 +370,7 @@ GP <- gameLogs %>%
   summarise(GP = n())
 
 team_gp_df <- gameLogs %>%
-  select(Team, GameID) %>%
+  select(Team, GameID, Opponent, Date) %>%
   distinct() %>%
   group_by(Team) %>%
   count() %>%
@@ -368,7 +387,8 @@ gameLogs_Two <- gameLogs %>%
          MVPCalc = (mean(PTS) + (0.5 * mean(PlusMinus)) + (2 * mean(STL + BLK)) + (0.5 * mean(TRB)) -
                       (1.5 * mean(TOV)) + (1.5 * mean(AST))),
          Date = as.Date(Date),
-         MVPCalc = round(MVPCalc, 1)) %>%
+         MVPCalc = round(MVPCalc, 1),
+         season_ppg = round(mean(PTS), 1)) %>%
   ungroup() %>%
   mutate(MVPCalc_game = (PTS + (0.5 * PlusMinus) + (2 * STL + BLK) + (0.5 * TRB) - TOV + AST)) %>%
   left_join(contracts %>% select(Player, Salary)) %>%
@@ -388,6 +408,8 @@ gameLogs_Two <- gameLogs %>%
                           team_gp - GP > team_gp_var ~ (abc3 * games_missed_penalty)),
          MVPCalc_adj = round(MVPCalc_adj, 1),
          abc_penalty = MVPCalc_adj - abc3)
+
+league_average_ts <- round(sum(gameLogs_Two$PTS) / (2 * (sum(gameLogs_Two$FGA) + (0.44 * sum(gameLogs_Two$FTA)))), 3)
 
 player_teams <- gameLogs_Two %>%
   select(Player, Team, Date) %>%
@@ -414,27 +436,38 @@ player_season_high <- gameLogs_Two %>%
   select(Player, avg_ppg, season_high, season_ts_percent) %>%
   distinct()
 
+player_png <- read_csv('data/player_png.csv')
+
 top_15_yesterday <- gameLogs_Yesterday %>%
   select(Player, Team, PTS, game_ts_percent, Outcome, Salary) %>%
   top_n(15, PTS) %>%
+  left_join(player_png) %>%
   arrange(desc(PTS)) %>%
   rename(`TS%` = game_ts_percent) %>%
   mutate(Rank = row_number()) %>%
-  select(Rank, Player, Team, PTS, `TS%`, Outcome, Salary) %>%
+  select(Rank, Player, Team, PTS, `TS%`, Outcome, Salary, logo) %>%
   left_join(player_season_high) %>%
   mutate(ppg_difference = PTS - avg_ppg,
          ts_difference = `TS%` - season_ts_percent,
          pts_color = case_when(PTS == season_high ~ 1,
-                               PTS != season_high & ppg_difference >= 15 ~ 2,
-                               ppg_difference <= -15 ~ 3,
+                               PTS != season_high & ppg_difference >= 10 ~ 2,
+                               ppg_difference <= -10 ~ 3,
                                TRUE ~ 0),
          ts_color = case_when(ts_difference >= 0.25 ~ 1,
                               ts_difference < 0.25 & ts_difference >= 0.15 ~ 2,
                               `TS%` <= 0.40 ~ 3,
-                              TRUE ~ 0)) %>%
-  select(Rank:Salary, pts_color:ts_color)
+                              TRUE ~ 0),
+         Player = paste0(
+           "<span style='font-size:16px; color:royalblue;'>",
+           Player,
+           "</span>",
+           " <span style='font-size:12px; color:grey;'>",
+           word(Team, start = -1), "</span>"),
+         Player = map(Player, ~gt::html(as.character(.x)))
+  ) %>%
+  select(Rank, logo, Player, everything(), -Team, -avg_ppg, -season_high, -ppg_difference, -ts_difference, -season_ts_percent)
 
-rm(player_season_high)
+rm(player_season_high, player_png)
 
 team_Wins_Yesterday <- gameLogs_Yesterday %>%
   filter(Date == max(Date)) %>%
@@ -581,7 +614,8 @@ west_standings <- team_wins %>%
 #   summarise(Total_PTS = sum(PTS))
 
 top_20pt_scorers <- gameLogs_Two %>%
-  filter(Type == 'Regular Season') %>%
+  filter(Type == 'Regular Season',
+         !(Player == 'James Harden' & Team == 'HOU')) %>%
   group_by(Player) %>%
   filter(mean(PTS) >= 20) %>%
   transmute(avg_PTS = mean(PTS), season_ts_percent, MVPCalc_adj, Team, GP) %>%
@@ -654,9 +688,9 @@ team_ratings_logo <- team_ratings %>%
 
 ######### Data Manipulation Complete ########
 # Graphs ----
-
 top20_plot <- function(df){
   p <- df %>%
+    filter(GP >= 5) %>%
     ggplot(aes(avg_PTS, season_ts_percent, fill = Top5)) +
     geom_point(size = 6, alpha = 0.7, pch = 21, color = 'black', aes(text = paste0(Player, '<br>',
                                                                                    Team, ' (', Wins, '-', Losses, ')', '<br>',
@@ -664,22 +698,26 @@ top20_plot <- function(df){
                                                                                    'TS%: ', round(season_ts_percent * 100, 1), '%', '<br>',
                                                                                    'Games Played: ', GP))) +
     scale_y_continuous(labels = scales::percent) + 
+    geom_hline(aes(yintercept = league_average_ts), alpha = 0.8, linetype = "dashed") +
+    annotate(geom = 'text', label = 'League Average TS%', x = max(df$avg_PTS) * .95, y = league_average_ts * .99) +
     scale_fill_manual(values = c('light blue', 'orange')) +
-    labs(color = 'Top 5 MVP Candidate', fill = 'Top 5 MVP Candidate',
-         title = 'Player Efficiency Tracker \n PPG vs TS% for all 20+ PPG Scorers',
+    labs(title = 'Player Efficiency Tracker \n PPG vs TS% for all 20+ PPG Scorers',
          x = 'Average Points per Game',
-         y = 'True Shooting Percentage') +
+         y = 'True Shooting Percentage',
+         fill = NULL) +
     theme_jacob() +
-    theme(plot.title = element_text(hjust = 0.5), legend.position = 'top')
+    theme(legend.background = element_rect(color = "black"))
   
   ggplotly(p, tooltip = c('text')) %>%
-    layout(legend = list(orientation = "h", x = 0.35),
-           hoverlabel = list(bgcolor = "white"))
+    layout(hoverlabel = list(bgcolor = "white"),
+           legend = list(x = .78, y = 0.1))
   
 }
+# top20_plot(top_20pt_scorers)
 
 team_ppg_plot <- function(df){
   p <- df %>%
+    filter(GP >= 5) %>%
     ggplot(aes(avg_PTS, season_ts_percent, fill = Top5)) +
     geom_point(size = 6, alpha = 0.7, pch = 21, color = 'black', aes(text = paste0(Player, '<br>',
                                                                                    Team, ' (', Wins, '-', Losses, ')', '<br>',
@@ -687,17 +725,20 @@ team_ppg_plot <- function(df){
                                                                                    'TS%: ', round(season_ts_percent * 100, 1), '%', '<br>',
                                                                                    'Games Played: ', GP))) +
     scale_y_continuous(labels = scales::percent) +
+    geom_hline(aes(yintercept = league_average_ts), alpha = 0.8, linetype = "dashed") +
+    annotate(geom = 'text', label = 'League Average TS%', x = max(df$avg_PTS) * .92, y = league_average_ts * .98) +
     scale_fill_manual(values = c('light blue', 'orange')) +
-    labs(color = 'Top 5 MVP Candidate', fill = 'Top 5 MVP Candidate',
-         title = 'Player Efficiency Tracker \n PPG vs TS%',
+    labs(title = 'Player Efficiency Tracker \n PPG vs TS%',
          x = 'Average Points per Game',
-         y = 'True Shooting Percentage') +
+         y = 'True Shooting Percentage',
+         fill = NULL) +
     theme_jacob() +
-    theme(plot.title = element_text(hjust = 0.5), legend.position = 'top')
+    theme(legend.background = element_rect(color = "black"))
+  
   
   ggplotly(p, tooltip = c('text')) %>%
-    layout(legend = list(orientation = "h", x = 0.35),
-           hoverlabel = list(bgcolor = "white"))
+    layout(hoverlabel = list(bgcolor = "white"),
+           legend = list(x = .78, y = 0.1))
   
 }
 
@@ -708,13 +749,13 @@ team_ratings_plot <- function(df){
   }
   
   annotations <- data.frame(
-    xpos = c(-Inf,-Inf,Inf,Inf),
-    ypos =  c(-Inf, Inf,-Inf,Inf),
-    annotateText = c("Good Defense \nBad Offense","Bad Defense \nBad Offense"
-                     ,"Good Defense\nGood Offense","Bad Defense \nGood Offense"),
-    hjustvar = c(0, 0, 1, 1) ,
-    vjustvar = c(.98,0,.99,0),
-    fillbby = c('#B3B6B7', '#CD6155', '#2ECC71', '#B3B6B7')) #<- adjust
+    xpos = c(-Inf,-Inf, -Inf, -Inf, Inf, Inf, Inf, Inf),
+    ypos =  c(min(df$DRTG), max(df$DRTG), -Inf, Inf, min(df$DRTG), max(df$DRTG), -Inf, Inf),
+    annotateText = c("+ Defense","- Offense ", "-  Offense ", "- Defense",
+                     "+ Defense", "+ Offense", "+ Offense ", "- Defense"),
+    hjustvar = c(0, 0, 0, 0, 1, 1, 1, 1) ,
+    vjustvar = c(1,0, 1, 0, 1, 0, 1,0),
+    fillbby = c('#2ECC71', '#CD6155', '#CD6155', '#CD6155', '#2ECC71', '#2ECC71', '#2ECC71', '#CD6155')) #<- adjust
   
   df %>%
     ggplot(aes(ORTG, DRTG)) +
@@ -727,13 +768,9 @@ team_ratings_plot <- function(df){
     labs(title = 'Offensive vs Defensive Ratings',
          x = 'Offensive Rating',
          y = 'Defensive Rating') +
-    theme_minimal(base_size = 15, base_family="Gill Sans MT") %+replace% 
-    theme(
-      panel.grid.minor = element_blank(),
-      plot.background = element_rect(fill = 'floralwhite', color = 'floralwhite')
-    ) +
-    scale_size_identity() +
-    theme(plot.title = element_text(hjust = 0.5), legend.position = 'none')
+    theme_jacob(base_size = 12) +
+    theme(legend.position = 'none',
+          plot.title = element_text(face = "bold", size = rel(1.35), hjust = 0.5))
   
 }
 
@@ -752,7 +789,18 @@ team_mov <- gameLogs_Two %>%
   filter(Team != Opponent) %>%
   mutate(mov = tot_pts - tot_pts_opp,
          outcome = case_when(mov > 0 ~ 'W',
-                             TRUE ~ 'L'))
+                             TRUE ~ 'L'),
+         outcome_wins = case_when(mov > 0 ~ 1,
+                                 TRUE ~ 0),
+         outcome_loss = case_when(mov < 0 ~ 1, 
+                                  TRUE ~ 0)) %>%
+  ungroup() %>%
+  group_by(Team) %>%
+  mutate(standing_w = cumsum(outcome_wins),
+         standing_l = cumsum(outcome_loss),
+         standings = paste0(standing_w, '-', standing_l)) %>%
+  select(Team:outcome, standings) %>%
+  ungroup()
 
 rm(opp_pts)
 
@@ -763,7 +811,8 @@ mov_plot <- function(df){
     geom_col(alpha = 0.7, aes(fill = outcome, text = paste0(Date, '<br>',
                                                            outcome, ' vs ', Opponent, '<br>',
                                                            'Scoreline: ', tot_pts, ' - ', tot_pts_opp, '<br>',
-                                                           'Margin of Victory: ', mov))) +
+                                                           'Margin of Victory: ', mov, '<br>',
+                                                           'Record: ', standings))) +
     scale_y_continuous(breaks = c(-50, -45, -40, -35, -30, -25, -20, -15, -10, -5, 0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50)) +
     scale_x_date(date_breaks = "1 month", date_labels = "%b %Y") +
     scale_fill_manual(values = cols) +
@@ -832,7 +881,7 @@ schedule_main <- schedule %>%
          team2_text = case_when(Date == todayDate ~ paste0(`Team 2`, " (", team2_moneyline, ")"),
                                 TRUE ~ `Team 2`)) %>%
   select(Date, `Day of Week`, `Start Time (EST)`, `team1_text`, `Vs`, team2_text, `Average Rank of Teams`) %>%
-  rename(`Home Team` = team1_text, `Road Team` = team2_text) %>%
+  rename(`Road Team` = team1_text, `Home Team` = team2_text) %>%
   distinct()
 
 rm(games_tonight)
@@ -854,6 +903,48 @@ opponent_prac <- schedule %>%
   mutate(opponent = `Team 1`,
          opponent2 = `Team 2`) %>%
   select(game_id, opponent, opponent2)
+
+future_sos_breakdown <- schedule %>%
+  select(date_game, game_start_time, visitor_team_name, visitor_pts, home_team_name) %>%
+  rename(Date = date_game, `Start Time (EST)` = game_start_time, `Team 1` = visitor_team_name, Vs = visitor_pts,
+         `Team 2` = home_team_name) %>%
+  mutate(Vs = replace_na(Vs, 'Vs'),
+         Date = as.Date(Date, format = '%a, %b %d, %Y'),
+         `Day of Week` = wday(Date, label = TRUE, abbr = FALSE),
+         `Start Time (EST)` = str_replace_all(`Start Time (EST)`, 'p', ' PM'),
+         bb = substr(`Start Time (EST)`, 0, 4),
+         b = parse_date_time(`Start Time (EST)`, '%I:%M %p')) %>%
+  filter(Date >= todayDate) %>%
+  arrange(Date, b) %>%
+  select(Date, `Day of Week`, `Start Time (EST)`, `Team 1`, Vs, `Team 2`) %>%
+  mutate(game_id = row_number()) %>%
+  pivot_longer(cols = starts_with('Team'),
+               names_to = 'Teambb',
+               values_to = 'value') %>%
+  select(-Teambb) %>%
+  rename(Team = value) %>%
+  select(Team, game_id) %>%
+  left_join(opponent_prac) %>%
+  pivot_longer(cols = starts_with('opponent'),
+               names_to = 'team',
+               values_to = 'valuebb') %>%
+  filter(Team != valuebb) %>%
+  select(-team) %>%
+  rename(Opponent = valuebb) %>%
+  left_join(team_rank) %>%
+  left_join(opponent_rank) %>%
+  group_by(Team) %>%
+  mutate(avg_opp_rank = mean(opp_Rank),
+         hmm = case_when(opp_Rank <= 10 ~ 'top10',
+                         opp_Rank > 10 & opp_Rank <= 20 ~ 'mid10',
+                         TRUE ~ 'bot10')) %>%
+  group_by(Team, hmm) %>%
+  count() %>%
+  ungroup() %>%
+  pivot_wider(names_from = hmm, values_from = n) %>%
+  mutate(top10_rank = get_ord_numbers(min_rank(-top10)),
+         mid10_rank = get_ord_numbers(min_rank(-mid10)),
+         bot10_rank = get_ord_numbers(min_rank(-bot10)))
 
 schedule_plot_df <- schedule %>%
   select(date_game, game_start_time, visitor_team_name, visitor_pts, home_team_name) %>%
@@ -885,30 +976,44 @@ schedule_plot_df <- schedule %>%
   left_join(team_rank) %>%
   left_join(opponent_rank) %>%
   group_by(Team) %>%
-  summarise(avg_opp_rank = mean(opp_Rank)) %>%
+  mutate(avg_opp_rank = mean(opp_Rank),
+         hmm = case_when(opp_Rank <= 10 ~ 'top10',
+                         opp_Rank > 10 & opp_Rank <= 20 ~ 'mid10',
+                         TRUE ~ 'bot10')) %>%
   left_join(team_rank) %>%
   mutate(differential = avg_opp_rank - Rank,
-         Team = fct_reorder(Team, avg_opp_rank),
          differential = round(differential, 1),
          avg_opp_rank = round(avg_opp_rank, 1)) %>%
+  select(-game_id, -Opponent, -hmm, -opp_Rank) %>%
+  distinct() %>%
+  ungroup() %>%
   arrange(avg_opp_rank) %>%
   mutate(remaining_sched_rank = row_number(),
          new_seed = get_ord_numbers(remaining_sched_rank),
          legend = case_when(differential > 0 ~ 'Easier Schedule',
                             TRUE ~ 'Harder Schedule'),
-         Rank = get_ord_numbers(Rank)) %>%
-  select(-remaining_sched_rank)
+         Rank = get_ord_numbers(Rank),
+         Team = fct_reorder(Team, avg_opp_rank)) %>%
+  select(-remaining_sched_rank) %>%
+  left_join(future_sos_breakdown) %>%
+  left_join(acronyms)
 
-rm(team_rank, opponent_rank, opponent_prac, schedule)
+
+
+rm(team_rank, opponent_rank, opponent_prac, schedule, future_sos_breakdown)
 
 schedule_plot <- function(df){
-  
-  p <- df %>%
-    ggplot(aes(avg_opp_rank, Team, fill = legend)) +
+  p <- df %>% 
+    ungroup() %>%
+    mutate(Team1 = fct_reorder(Team1, avg_opp_rank)) %>%
+    ggplot(aes(avg_opp_rank, Team1, fill = legend)) +
     geom_col(aes(text = paste0(Team, '<br>',
-                                                'Remaining Schedule Difficulty Rank: ', new_seed, '<br>',
-                                                'Team Rank (as of Today): ', Rank, '<br>',
-                                                'Average Opponent Rank in upcoming games: ', avg_opp_rank))) +
+                               'Remaining Schedule Difficulty Rank: ', new_seed, '<br>',
+                               'Team Rank (as of Today): ', Rank, '<br>',
+                               'Average Opponent Rank in upcoming games: ', avg_opp_rank, '<br>', '<br>',
+                               'Remaining Games vs Top 10 Teams: ', top10, ' (', top10_rank, ')', '<br>',
+                               'Remaining Games vs Middle 10 Teams: ', mid10, ' (', mid10_rank, ')', '<br>',
+                               'Remaining Games vs Bottom 10 Teams: ', bot10, ' (', bot10_rank, ')'))) +
     # annotate(geom = "text", label = "<span style='color: #F8766D;'>  Harder Upcoming Schedule</span>",
     #          x = max(df$avg_opp_rank) * .93, y = 4) +
     # annotate(geom = "text", label = "<span style='color: #00BFC4;'> Easier Upcoming \n Schedule</span>",
@@ -917,12 +1022,15 @@ schedule_plot <- function(df){
     labs(y = NULL,
          x = 'Average Opponent Rank',
          title = 'Strength of Schedule Breakdown for the remaining Season',
-         fill = 'Legend') +
+         fill = NULL) +
     theme_jacob()
   
   ggplotly(p, tooltip = c('text')) %>%
-    layout(hoverlabel = list(bgcolor = "white"))
+    layout(hoverlabel = list(bgcolor = "white"),
+           legend = list(x = .83, y = 0.1))
 }
+
+# schedule_plot(schedule_plot_df)
 
 regular_valuebox_function <- function(df){
   if (nrow(df) > 0){
@@ -1053,7 +1161,7 @@ value_plot <- function(df){
     labs(y = 'Player Value Metric',
          x = 'Salary',
          title = 'What are the least & most valuable contracts in the 2020-21 NBA Season ?',
-         fill = 'Color Legend') +
+         fill = 'Legend') +
     scale_fill_manual(values=c("red", "green", "grey70", 'purple'))
   
   ggplotly(p, tooltip = c('text')) %>%
@@ -1140,7 +1248,7 @@ team_contract_value_plot <- function(df){
                                                                           'Total Contract Value Missing: ', (team_pct_missing * 100), '%',
                                                                            '<br>',
                                                                           'Win Percentage: ', round(WinPercentage, 2)))) +
-    geom_col() +
+    geom_col(color = 'grey40') +
     geom_vline(aes(xintercept = mean(team_pct_missing), alpha = 0.5)) +
     scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +
     scale_fill_gradient(low = 'red', high = 'green') +
@@ -1148,8 +1256,8 @@ team_contract_value_plot <- function(df){
              label = paste0(round(mean(df$team_pct_missing * 100), 2), '% (League Average)')) +
     labs(x = '% of Total Contract Value Missing',
          y = NULL,
-         title = 'Which Teams are missing the most Contract Value in Games Played from Injuries, COVID-related Absences, or DNPs?',
-         fill = 'Win Percentage') +
+         title = 'Which Teams are missing the most Contract Value this Season from Injuries, COVID-related Absences, or DNPs?',
+         fill = 'Legend') +
     theme_jacob()
   
   ggplotly(p, tooltip = c('text')) %>%
@@ -1178,18 +1286,20 @@ rm(team_ratings, contracts, GP)
 
 # you could look at SOS currently vs future SOS and factor that in
 # problem is we dont have future schedule yet.  
-over_under2 <- over_under %>%
+over_under <- over_under %>%
   rename(FullName = Team) %>%
   left_join(team_wins %>% select(FullName, WinPercentage, projected_wins, projected_losses)) %>%
   left_join(full_team_names) %>%
+  rename(Team_abb = Team, Team = FullName) %>%
+  left_join(schedule_plot_df %>% select(Team, bot10:bot10_rank)) %>%
+  rename(Team = Team_abb, FullName = Team) %>%
   mutate(new_expected_winpct = round((over_under_wins / 72), 3),
          over = case_when(WinPercentage >= new_expected_winpct ~ 'Over',
                            TRUE ~ 'Under'),
          wins_difference = projected_wins - over_under_wins,
          Team = fct_reorder(Team, wins_difference),
-         wins_odds_pre = 72 - over_under_wins)
-
-rm(over_under)
+         wins_odds_pre = 72 - over_under_wins) %>%
+  distinct()
 
 vegas_plot <- function(df) {
   p <- df %>%
@@ -1200,9 +1310,9 @@ vegas_plot <- function(df) {
                                'Wins Differential: ', wins_difference))) +
     scale_fill_manual(values = c('#00BFC4', '#F8766D')) +
     annotate(geom = "text", label = "<span style='color: #00BFC4;'>  Exceeding Expectations</span>",
-             x = min(df$wins_difference) * .5, y = 25, size = 4.5) +
+             x = min(df$wins_difference) * .45, y = 24.5, size = 4.5) +
     annotate(geom = "text", label = "<span style='color: #F8766D;'> Underperforming</span>",
-             x = max(df$wins_difference) * .4, y = 5, size = 4.5) +
+             x = max(df$wins_difference) * .30, y = 5.5, size = 4.5) +
     labs(x = 'Predicted Wins Differential',
          y = NULL,
          title = paste0('Vegas Preseason Over / Under Odds Tracker as of ', today)) +
@@ -1213,17 +1323,17 @@ vegas_plot <- function(df) {
     layout(hoverlabel = list(bgcolor = "white"))
 }
 
-# vegas_plot(over_under2)
+# vegas_plot(over_under)
 
-days_off <- gameLogs_Two %>%
-  select(DaysRest, Outcome, Location, GameID, Date) %>%
-  distinct() %>%
-  group_by(DaysRest, Outcome) %>%
-  count() %>%
-  ungroup() %>%
-  group_by(DaysRest) %>%
-  mutate(pct_total = n / sum(n),
-         pct_total = round(pct_total, 3))
+# days_off <- gameLogs_Two %>%
+#   select(DaysRest, Outcome, Location, GameID, Date) %>%
+#   distinct() %>%
+#   group_by(DaysRest, Outcome) %>%
+#   count() %>%
+#   ungroup() %>%
+#   group_by(DaysRest) %>%
+#   mutate(pct_total = n / sum(n),
+#          pct_total = round(pct_total, 3))
 
 max_player_date <- gameLogs_Two %>%
   select(Player, Date, Team) %>%
@@ -1334,8 +1444,11 @@ rm(homeroad_standings, team_opponents, opp_winpercent)
 #   mutate(avg_pts = round(mean(PTS), 1),
 #          pts_differential = PTS - avg_pts,
 #          pts_variance_game = pts_differential * pts_differential,
-#          pts_variance = sum(pts_variance_game) / GP,
-#          std_dev = round(sqrt(pts_variance), 2))
+#          pts_variance = mean(pts_variance_game),
+#          std_dev = round(sqrt(pts_variance), 2),
+#          pts_var_pct = round(std_dev / avg_pts, 3)) %>%
+#   ungroup()
+
 
 advanced_sos_plot <- function(df){
   p <- df %>%
@@ -1357,7 +1470,7 @@ advanced_sos_plot <- function(df){
     annotate(geom = "text", label = "<span style='color: #F8766D;'>  Faced Harder Competition</span>",
              x = max(df$prop_gp_below500) * .93, y = 4) +
     annotate(geom = "text", label = "<span style='color: #00BFC4;'> Faced Easier \n Competition</span>",
-             x = max(df$prop_gp_below500) * .98, y = 24) +
+             x = max(df$prop_gp_below500) * .98, y = 16) +
     labs(x = '% of Games vs Below .500 Teams',
          y = NULL,
          title = paste0('NBA Teams Strength of Schedule as of ', today)) +
@@ -1375,10 +1488,17 @@ team_opp_ppg <- gameLogs_Two %>%
   mutate(opp_threepct = round(opp_tot_threes_made / opp_tot_threes_attempted, 3)) %>%
   rename(Opp = Team)
 
+team_png <- read_csv('data/team_png.csv')
+
+opp_png <- team_png %>%
+  select(Opponent = Team, opp_logo = logo)
+
 team_avg_ppg <- gameLogs_Two %>%
-  select(Team, GameID, Date, PTS, threePFGMade, threePAttempted) %>%
+  select(Team, GameID, Date, PTS, threePFGMade, threePAttempted, Location) %>%
   group_by(Team, GameID, Date) %>%
   summarise(pts = sum(PTS), tot_threes_made = sum(threePFGMade), tot_threes_attempted = sum(threePAttempted)) %>%
+  left_join(gameLogs_Two %>% select(Team, GameID, Location)) %>%
+  distinct() %>%
   mutate(threepct = round(tot_threes_made / tot_threes_attempted, 3)) %>%
   left_join(team_opp_ppg) %>%
   filter(Team != Opp) %>%
@@ -1396,14 +1516,166 @@ team_avg_ppg <- gameLogs_Two %>%
   filter(Date == max(Date)) %>%
   arrange(desc(GameID)) %>%
   mutate(pts_color = case_when(pts == max_season_pts ~ 1, # best all season
-                               pts != max_season_pts & pts_difference >= 15 ~ 2, # pretty good
-                               pts_difference <= -15 ~ 3, # very bad
+                               pts != max_season_pts & pts_difference >= 10 ~ 2, # pretty good # very bad
+                               pts_difference <= -10 ~ 3,
                                TRUE ~ 0),
-         opp_pts_color = case_when(opp_pts == max_opp_season_pts ~ 1, # worst all season
-                                   opp_pts != max_opp_season_pts & opp_pts_difference >= 15 ~ 2, # pretty bad
-                                   opp_pts_difference <= -15 ~ 3, # very good
+         opp_pts_color = case_when(opp_pts_difference <= -10 ~ 2, # pretty bad
+                                   opp_pts_difference >= 10 ~ 3, # very good
                                    TRUE ~ 0)) %>%
-  select(Team, Outcome, pts, Opp, opp_pts, pts_color, opp_pts_color) %>%
-  rename(PTS = pts, Opponent = Opp, `Opponent PTS` = opp_pts)
+  select(Team, Outcome, pts, Opp, opp_pts, opp_pts_color, pts_color, Location) %>%
+  rename(PTS = pts, Opponent = Opp, `Opponent PTS` = opp_pts) %>%
+  left_join(team_png %>% select(Team, logo)) %>%
+  left_join(opp_png) %>%
+  mutate(mov = PTS - `Opponent PTS`,
+         new_loc = case_when(Location == 'H' ~ 'Vs.',
+                             TRUE ~ '@')) %>%
+  arrange(desc(mov)) %>%
+  select(logo, Team, Outcome, PTS, new_loc, opp_logo, opp_pts_color, everything(), -Location) %>%
+  filter(Outcome == 'W')
 
-rm(team_opp_ppg)
+rm(team_opp_ppg, team_png)
+
+### gt table functions
+gt_theme_538 <- function(data,...) {
+  data %>%
+    opt_all_caps()  %>%
+    opt_table_font(
+      font = list(
+        google_font("Chivo"),
+        default_fonts()
+      )
+    ) %>%
+    tab_style(
+      style = cell_borders(
+        sides = "bottom", color = "#585d63", weight = px(2)
+      ),
+      locations = cells_body(
+        columns = TRUE,
+        # This is a relatively sneaky way of changing the bottom border
+        # Regardless of data size
+        rows = nrow(data$`_data`)
+      )
+    )  %>% 
+    tab_options(
+      column_labels.background.color = "white",
+      table.border.top.width = px(3),
+      table.border.top.color = "transparent",
+      table.border.bottom.color = "transparent",
+      table.border.bottom.width = px(3),
+      column_labels.border.top.width = px(3),
+      column_labels.border.top.color = "transparent",
+      column_labels.border.bottom.width = px(3),
+      column_labels.border.bottom.color = "black",
+      data_row.padding = px(3),
+      source_notes.font.size = 12,
+      table.font.size = 16,
+      heading.align = "left",
+      ...
+    ) 
+}
+team_gt_table <- function(df){
+  df %>%
+    gt() %>%
+    gt_theme_538() %>%
+    text_transform(locations = cells_body(vars(logo)),
+                   fn = function(x) {
+                     web_image(url = x, height = 45)
+                   }) %>%
+    text_transform(locations = cells_body(vars(opp_logo)),
+                   fn = function(x) {
+                     web_image(url = x, height = 45)
+                   }) %>%
+    cols_hide(columns = vars(pts_color, opp_pts_color)) %>%
+    cols_label(logo = "", opp_logo = "", new_loc = "", `Opponent PTS` = 'OPP. PTS', mov = 'MARGIN OF VICTORY') %>%
+    tab_style(
+      style = cell_fill(color = "#9362DA"),
+      locations = cells_body(
+        columns = vars(PTS),
+        rows = pts_color == 1)) %>%
+    tab_style(
+      style = cell_fill(color = "#3fb7d9"),
+      locations = cells_body(
+        columns = vars(PTS),
+        rows = pts_color == 2)) %>%
+    tab_style(
+      style = cell_fill(color = "#B9564A"),
+      locations = cells_body(
+        columns = vars(PTS),
+        rows = pts_color == 3)) %>%
+    tab_style(
+      style = cell_fill(color = "#B9564A"),
+      locations = cells_body(
+        columns = vars(`Opponent PTS`),
+        rows = opp_pts_color == 2)) %>%
+    tab_style(
+      style = cell_fill(color = "#3fb7d9"),
+      locations = cells_body(
+        columns = vars(`Opponent PTS`),
+        rows = opp_pts_color == 3)) %>%
+    tab_header(
+      title = md("Team Stats"),
+      subtitle = paste0("From ", recent_Bans$`Number of Games`, " Games Played on ", format(todayDate - 1, "%A, %B %d"))) %>%
+    opt_align_table_header(align = "center") %>%
+    cols_align(
+      align = "center",
+      columns = TRUE
+    )
+}
+# team_gt_table(team_avg_ppg)
+
+player_gt_table <- function(df){
+  df %>%
+    gt() %>%
+    gt_theme_538() %>%
+    text_transform(
+      locations = cells_body(vars(logo)),
+      fn = function(x){
+        web_image(url = x, height = 34)
+      }
+    ) %>%
+    cols_hide(columns = vars(pts_color, ts_color)) %>%
+    cols_label(logo = "") %>%
+    opt_table_font(
+      font = list(
+        google_font("Chivo"),
+        default_fonts()
+      )) %>%
+    fmt_currency(columns = vars(Salary), currency = 'USD', decimals = 0) %>%
+    fmt_percent(columns = vars(`TS%`)) %>%
+    tab_style(
+      style = cell_fill(color = "#9362DA"),
+      locations = cells_body(
+        columns = vars(PTS),
+        rows = pts_color == 1 # color rdef IF number > 80
+      )
+    ) %>%
+    tab_style(
+      style = cell_fill(color = "#3fb7d9"),
+      locations = cells_body(
+        columns = vars(PTS),
+        rows = pts_color == 2 # color rdef IF number > 80
+      )
+    ) %>%
+    tab_style(
+      style = cell_fill(color = "#B9564A"),
+      locations = cells_body(
+        columns = vars(PTS),
+        rows = pts_color == 3 # color rdef IF number > 80
+      )
+    ) %>%
+    data_color(
+      columns = vars(`TS%`),
+      colors = scales::col_numeric(
+        palette = c("white", "#19e661"),
+        domain = NULL)) %>%
+    tab_header(
+      title = md("Top Performers by **PTS** Scored"),
+      subtitle = paste0("From ", recent_Bans$`Number of Games`, " Games Played on ", format(todayDate - 1, "%A, %B %d"))) %>%
+    opt_align_table_header(align = "center") %>%
+    cols_align(
+      align = "center",
+      columns = TRUE
+    )
+  
+}
+# player_gt_table(top_15_yesterday)
