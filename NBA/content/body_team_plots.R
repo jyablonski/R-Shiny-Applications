@@ -19,7 +19,7 @@ body_team_plots <- dashboardBody(
   fluidRow(
     box(
       title = "Team Margin of Victory Plot",
-      status = "success",
+      status = "primary",
       solidHeader = TRUE,
       collapsible = FALSE,
       width = 6,
@@ -27,7 +27,7 @@ body_team_plots <- dashboardBody(
     ),
     box(
       title = "Team PPG Plot",
-      status = "success",
+      status = "primary",
       solidHeader = TRUE,
       collapsible = FALSE,
       width = 6,
@@ -38,3 +38,4 @@ body_team_plots <- dashboardBody(
     column(width = 6, h4('Transactions Table'), DT::dataTableOutput("transactions_table"))
   )
 )
+
