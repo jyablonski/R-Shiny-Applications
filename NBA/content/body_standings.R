@@ -21,7 +21,7 @@ body_standings <- dashboardBody(
   fluidRow(
       box(
         title = "Player Scoring Efficiency",
-        status = "success",
+        status = "primary",
         solidHeader = TRUE,
         collapsible = FALSE,
         width = 6,
@@ -29,7 +29,7 @@ body_standings <- dashboardBody(
         ),
       box(
         title = "Team Ratings",
-        status = "success",
+        status = "primary",
         solidHeader = TRUE,
         collapsible = FALSE,
         width = 6,
@@ -39,7 +39,7 @@ body_standings <- dashboardBody(
   fluidRow(
     box(
       title = "Player Contract Value Analysis",
-      status = "success",
+      status = "primary",
       solidHeader = TRUE,
       collapsible = FALSE,
       width = 6,
@@ -47,7 +47,7 @@ body_standings <- dashboardBody(
     ),
     box(
       title = "Team Contract Value Analysis",
-      status = "success",
+      status = "primary",
       solidHeader = TRUE,
       collapsible = FALSE,
       width = 6,
