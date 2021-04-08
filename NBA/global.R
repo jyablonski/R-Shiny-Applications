@@ -24,15 +24,14 @@ library(bslib)
 library(RMySQL)
 library(gt)
 library(shinythemes)
-
+  
 Sys.setenv (TZ="America/Los_Angeles")
 #### AWS CONNECTION #####
 
-aws_connect <- dbConnect(drv = RMySQL::MySQL(), dbname = #######aws####,
-                         host = ####aws####,
-                         port = 3306,
-                         user = ####aws### , password = #####aws####)
-
+aws_connect <- dbConnect(drv = RMySQL::MySQL(), dbname = ###aws###,
+                         host = ###aws###,
+                         port = ###aws###,
+                         user = ###aws###, password = ###aws###)
 
 today <- Sys.Date()
 todayDate <- Sys.Date()
@@ -48,6 +47,7 @@ theme_jacob <- function(..., base_size = 11) {
         panel.background = element_rect(fill = "#f0f0f0", color = NA),
         plot.background = element_rect(fill = "#f0f0f0", color = NA),
         legend.background = element_rect(fill = '#f0f0f0', color = NA),
+        legend.position = 'top',
         panel.border = element_blank(),
         strip.background = element_blank(),
         plot.margin = margin(0.5, 1, 0.5, 1, unit = "cm"),
@@ -57,14 +57,17 @@ theme_jacob <- function(..., base_size = 11) {
         axis.title = element_text(face = "bold", size = rel(1.2)),
         axis.title.x = element_text(margin = margin(0.5, 0, 0, 0, unit = "cm")),
         axis.title.y = element_text(margin = margin(0, 0.5, 0, 0, unit = "cm"), angle = 90),
-        plot.title = element_text(face = "bold", size = rel(1.05), hjust = 0.5),
+        plot.title = element_text(face = "bold", size = rel(1.05), hjust = 0.52, margin = margin(0, 0, .2, 0, unit = 'cm')),
         plot.title.position = "plot",
-        plot.subtitle = element_text(size = 11, margin = margin(0.2, 0, 1, 0, unit = "cm"), hjust = 0.5),
+        plot.subtitle = element_text(size = 11, margin = margin(0, 0, 0.2, 0, unit = "cm"), hjust = 0.5),
         plot.caption = element_text(size = 10, margin = margin(1, 0, 0, 0, unit = "cm"), hjust = 1),
         strip.text = element_text(size = rel(1.05), face = "bold"),
+        strip.text.x = element_text(margin = margin(0.1, 0, 0.1, 0, "cm")),
         ...
   )
 }
+theme_set(theme_jacob())
+
 
 # data retrieval functions
 get_gamelogs_data <- function(){
@@ -338,7 +341,7 @@ schedule <- read_csv('data/schedule.csv')
 transactions <- get_transactions()
 contracts <- read_csv('data/contracts.csv')
 # pbp_data <- get_playbyplay_data()
-last_season_wins <- read_csv('data/lastseasonwins.csv')
+# last_season_wins <- read_csv('data/lastseasonwins.csv')
 over_under <- read_csv('data/nba_odds.csv')
 opponent_shooting <- get_team_opponent_shooting_data()
 odds_df <- get_odds() %>%
@@ -706,7 +709,6 @@ top20_plot <- function(df){
          x = 'Average Points per Game',
          y = 'True Shooting Percentage',
          fill = NULL) +
-    theme_jacob() +
     theme(legend.background = element_rect(color = "black"))
   
   ggplotly(p, tooltip = c('text')) %>%
@@ -733,7 +735,6 @@ team_ppg_plot <- function(df){
          x = 'Average Points per Game',
          y = 'True Shooting Percentage',
          fill = NULL) +
-    theme_jacob() +
     theme(legend.background = element_rect(color = "black"))
   
   
@@ -769,7 +770,6 @@ team_ratings_plot <- function(df){
     labs(title = 'Offensive vs Defensive Ratings',
          x = 'Offensive Rating',
          y = 'Defensive Rating') +
-    theme_jacob(base_size = 12) +
     theme(legend.position = 'none',
           plot.title = element_text(face = "bold", size = rel(1.35), hjust = 0.5))
   
@@ -820,8 +820,7 @@ mov_plot <- function(df){
     labs(x = NULL,
          y = 'Margin of Victory',
          title = paste0(df$FullName[1], ' Game Log History \n 2020-2021 NBA Season'),
-         fill = 'Outcome') +
-    theme_jacob()
+         fill = 'Outcome')
   
   
   ggplotly(p, tooltip = c('text')) %>%
@@ -1023,8 +1022,7 @@ schedule_plot <- function(df){
     labs(y = NULL,
          x = 'Average Opponent Rank',
          title = 'Strength of Schedule Breakdown for the remaining Season',
-         fill = NULL) +
-    theme_jacob()
+         fill = NULL)
   
   ggplotly(p, tooltip = c('text')) %>%
     layout(hoverlabel = list(bgcolor = "white"),
@@ -1158,7 +1156,6 @@ value_plot <- function(df){
                size = 2.5, shape = 21, alpha = 0.7) +
     scale_x_continuous(labels = label_dollar()) +
     scale_y_continuous(limits = c(-5, 55, breaks = c(-5, 5, 15, 25, 35, 45))) +
-    theme_jacob() +
     labs(y = 'Player Value Metric',
          x = 'Salary',
          title = 'What are the least & most valuable contracts in the 2020-21 NBA Season ?',
@@ -1249,7 +1246,7 @@ team_contract_value_plot <- function(df){
                                                                           'Total Contract Value Missing: ', (team_pct_missing * 100), '%',
                                                                            '<br>',
                                                                           'Win Percentage: ', round(WinPercentage, 2)))) +
-    geom_col(color = 'grey40') +
+    geom_col() +
     geom_vline(aes(xintercept = mean(team_pct_missing), alpha = 0.5)) +
     scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +
     scale_fill_gradient(low = 'red', high = 'green') +
@@ -1258,8 +1255,7 @@ team_contract_value_plot <- function(df){
     labs(x = '% of Total Contract Value Missing',
          y = NULL,
          title = 'Which Teams are missing the most Contract Value this Season from Injuries, COVID-related Absences, or DNPs?',
-         fill = 'Legend') +
-    theme_jacob()
+         fill = 'Legend')
   
   ggplotly(p, tooltip = c('text')) %>%
     layout(legend = list(orientation = "h", x = 0.35),
@@ -1336,11 +1332,11 @@ vegas_plot <- function(df) {
 #   mutate(pct_total = n / sum(n),
 #          pct_total = round(pct_total, 3))
 
-max_player_date <- gameLogs_Two %>%
-  select(Player, Date, Team) %>%
-  group_by(Player) %>%
-  filter(Date == max(Date)) %>%
-  rename(right_team = Team)
+# max_player_date <- gameLogs_Two %>%
+#   select(Player, Date, Team) %>%
+#   group_by(Player) %>%
+#   filter(Date == max(Date)) %>%
+#   rename(right_team = Team)
 
 # need to iterate through gamelogs to find date of trade and gp since trade.  
 
@@ -1534,7 +1530,13 @@ team_avg_ppg <- gameLogs_Two %>%
   select(logo, Team, Outcome, PTS, new_loc, opp_logo, opp_pts_color, everything(), -Location) %>%
   filter(Outcome == 'W')
 
-rm(team_opp_ppg, team_png)
+rm(team_opp_ppg, team_png, opp_png)
+
+most_recent_date <- gameLogs_Two %>%
+  select(Date) %>%
+  filter(Date == max(Date)) %>%
+  distinct()
+  
 
 ### gt table functions
 gt_theme_538 <- function(data,...) {
@@ -1615,7 +1617,7 @@ team_gt_table <- function(df){
         rows = opp_pts_color == 3)) %>%
     tab_header(
       title = md("Team Stats"),
-      subtitle = paste0("From ", recent_Bans$`Number of Games`, " Games Played on ", format(todayDate - 1, "%A, %B %d"))) %>%
+      subtitle = paste0("From ", recent_Bans$`Number of Games`, " Games Played on ", format(most_recent_date$Date, "%A, %B %d"))) %>%
     opt_align_table_header(align = "center") %>%
     cols_align(
       align = "center",
@@ -1671,7 +1673,7 @@ player_gt_table <- function(df){
         domain = NULL)) %>%
     tab_header(
       title = md("Top Performers by **PTS** Scored"),
-      subtitle = paste0("From ", recent_Bans$`Number of Games`, " Games Played on ", format(todayDate - 1, "%A, %B %d"))) %>%
+      subtitle = paste0("From ", recent_Bans$`Number of Games`, " Games Played on ", format(most_recent_date$Date, "%A, %B %d"))) %>%
     opt_align_table_header(align = "center") %>%
     cols_align(
       align = "center",
@@ -1680,3 +1682,6 @@ player_gt_table <- function(df){
   
 }
 # player_gt_table(top_15_yesterday)
+
+rm(acronyms, conferences, full_team_names, gameLogs_Yesterday, gameLogs_Two, last_10_wins, odds2, opponent_shooting, player_teams,
+   upcoming_games, yesterday, todayDate)
