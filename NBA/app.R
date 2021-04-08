@@ -7,6 +7,7 @@ source('content/body_schedule.R')
 
 
 ui <- fluidPage(
+  theme = shinytheme("sandstone"),  #sandstone, cosmo, 
   tags$head(includeHTML(("google-analytics.html")),
             tags$style(HTML( ".selectize-input {background-color:#F0F0F0;
                       color:#000000;
@@ -21,6 +22,15 @@ ui <- fluidPage(
   tags$style(type = "text/css", ".row {margin-left: 0px; margin-right: 0px;"),
   tags$style(HTML(".col-sm-12 { padding: 5px; margin-bottom: 0px; }")),
   tags$style(HTML(".col-sm-6 { padding: 5px; margin-bottom: 0px; }")),
+  tags$style(HTML(".box.box-solid.box-primary>.box-header {color:#fff;
+  background:#666666}
+  .box.box-solid.box-primary
+  {
+  border-bottom-color:#666666;
+  border-left-color:#666666;
+  border-right-color:#666666;
+  border-top-color:#666666;
+  }")),
   navbarPage(' 2020-2021 NBA Season Dashboard',
              tabPanel("Overview", dashboardPage(title = "Overview",
                                                 header = dashboardHeader(disable = TRUE),
@@ -97,38 +107,11 @@ server <- function(input, output, session) {
     )
   })
 
-  output$top_15 <- DT::renderDataTable(datatable(top_15_yesterday, rownames = FALSE,
-                                                 options = list(searching = FALSE, pageLength = 15, 
-                                                                lengthChange = FALSE, info = FALSE, paging = FALSE,
-                                                                columnDefs = list(list(targets = c(7, 8),  
-                                                                                       visible = FALSE)))) %>%
-                                         formatCurrency(7, currency = "$", interval = 3, mark = ",", digits = 0) %>%
-                                         formatPercentage(5, digits = 1) %>%
-                                         formatStyle(columns = 'PTS', 
-                                                     valueColumns = 'pts_color',
-                                                     backgroundColor = styleEqual(levels = c(1, 2, 3), 
-                                                                                  values = c('#9362DA', '#78B571', 'red'))) %>%
-                                         formatStyle(columns = 'TS%',
-                                                     valueColumns = 'ts_color',
-                                                     backgroundColor = styleEqual(levels = c(1, 2, 3), 
-                                                                                  values = c('#4BD33A', '#78B571', 'red'))))
+  output$top_15 <- render_gt(player_gt_table(top_15_yesterday))
     
                                        
-  output$recent_team_wins <- DT::renderDataTable(datatable(team_avg_ppg, rownames = FALSE,
-                                                           options = list(searching = FALSE,
-                                                                          pageLength = 15, 
-                                                                          lengthChange = FALSE, info = FALSE,
-                                                                          paging = FALSE,
-                                                                          columnDefs = list(list(targets = c(5, 6),  
-                                                                                                 visible = FALSE)))) %>%
-                                                   formatStyle(columns = 'PTS', 
-                                                               valueColumns = 'pts_color',
-                                                               backgroundColor = styleEqual(levels = c(1, 2, 3), 
-                                                                                            values = c('#9362DA', '#4BD33A', '#B9564A'))) %>%
-                                                   formatStyle(columns = 'Opponent PTS',
-                                                               valueColumns = 'opp_pts_color',
-                                                               backgroundColor = styleEqual(levels = c(1, 2, 3), 
-                                                                                            values = c('#9362DA', '#B9564A', '#78B571'))))
+  output$recent_team_wins <- render_gt(team_gt_table(team_avg_ppg))
+  
   output$top20_plot_output <- renderPlotly({
       top20_plot(top_20pt_scorers) 
   })
@@ -138,7 +121,7 @@ server <- function(input, output, session) {
       schedule_plot(schedule_plot_df)
     }
     else if (input$select_choice == 'Vegas Preseason Over/Under Odds') {
-      vegas_plot(over_under2)
+      vegas_plot(over_under)
     }
     else {
       advanced_sos_plot(advanced_standings)
