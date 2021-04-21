@@ -20,6 +20,9 @@ ui <- fluidPage(
   tags$style(type = "text/css", ".navbar {margin-bottom: 0px; padding-left: 15px;"),
   tags$style(type = "text/css", ".content {padding: 0px;}"),
   tags$style(type = "text/css", ".row {margin-left: 0px; margin-right: 0px;"),
+  tags$style(HTML("#final_text {text-align: center;}
+                                div.box-header {
+                                  text-align: center;}")),
   tags$style(HTML(".col-sm-12 { padding: 5px; margin-bottom: 0px; }")),
   tags$style(HTML(".col-sm-6 { padding: 5px; margin-bottom: 0px; }")),
   tags$style(HTML(".box.box-solid.box-primary>.box-header {color:#fff;
@@ -131,6 +134,15 @@ server <- function(input, output, session) {
   selected_team_injury <- reactive({
     injury_data %>%
       filter(FullName == input$select_team)
+  })
+  
+  selected_game_event <- reactive({
+    pbp_event_df %>%
+      filter(text == input$select_game)
+  })
+  
+  output$yesterday_event_output <- renderPlotly({
+    game_event_plot(selected_game_event()) 
   })
   
   output$team_plot_output <- renderPlot({
